@@ -1,5 +1,6 @@
 # CruxCam
 
 ## Next Steps
-- fix mp4 output
-- add tests for score calc
+- section out code into python files
+- input as link to instagram reel or mp4
+    - instagram api?
