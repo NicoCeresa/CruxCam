@@ -7,5 +7,4 @@
 - checks
     - video length
     - input dtype (mp4)
-- color change on figure based on angles of arms
 - impliment 3d pose estimation paper XD
