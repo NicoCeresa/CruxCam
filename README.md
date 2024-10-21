@@ -1,10 +1,10 @@
 # CruxCam
 
 ## Next Steps
-- draw lines between points
-- use uploaded mp4s
-- calc angles
-- display metrics
-- 3d pose estimation:
-  - https://medium.com/@birddropping/3d-human-pose-classification-using-mediapipe-and-pointnet-cb2dd955c27
-  - https://github.com/TemugeB/bodypose3d/tree/main
+- section out code into python files
+- input as link to instagram reel or mp4
+    - instagram api?
+- checks
+    - video length
+    - input dtype (mp4)
+- impliment 3d pose estimation paper XD
