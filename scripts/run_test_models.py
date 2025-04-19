@@ -1,13 +1,10 @@
-import os
-import sys
-sys.path.insert(0, 'G:/Projects/CruxCam/notebooks')
 import cv2
 import time
 import math
 import numpy as np
 import mediapipe as mp
 from pathlib import Path
-import project_utilities as pu
+import streamlit as st
 
 good_frames = 0
 bad_frames = 0
@@ -108,9 +105,9 @@ class draw:
         assert Path(self.input_path).exists
         
         cap = cv2.VideoCapture(self.input_path)
-        if not cap.isOpened():
-            print("Error: Could not open video file.")
-            exit()
+        # if not cap.isOpened():
+        #     print("Error: Could not open video file.")
+        #     exit()
         
         fps = int(cap.get(cv2.CAP_PROP_FPS))
         width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
@@ -125,8 +122,9 @@ class draw:
         fourcc = cv2.VideoWriter_fourcc(*'mp4v')
         out = cv2.VideoWriter(self.output_path, fourcc, fps, (width, height)) 
         pose = self.mpPose.Pose()
+        stop_button = st.button("Stop")
 
-        while True:
+        while cap.isOpened() and not stop_button:
             success, img = cap.read()
             if not success:
                 break
