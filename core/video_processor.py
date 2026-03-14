@@ -8,7 +8,6 @@ from .pose_analyzer import PoseAnalyzer, AnalysisResult
 
 
 class VideoProcessor:
-    """Handles video I/O and processing with pose analysis."""
     
     def __init__(self, pose_analyzer: Optional[PoseAnalyzer] = None):
         """
@@ -43,13 +42,11 @@ class VideoProcessor:
         if not cap.isOpened():
             raise RuntimeError(f"Could not open video file: {input_path}")
         
-        # Get video properties
         fps = int(cap.get(cv2.CAP_PROP_FPS))
         width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         
-        # Create output path if not provided
         if output_path is None:
             temp_file = tempfile.NamedTemporaryFile(
                 delete=False, suffix='.mp4', prefix='cruxcam_'
@@ -57,24 +54,19 @@ class VideoProcessor:
             output_path = temp_file.name
             temp_file.close()
         
-        # Setup video writer — avc1 (H.264) is required for browser playback
         fourcc = cv2.VideoWriter_fourcc(*'avc1')
         out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
         if not out.isOpened():
-            # avc1 unavailable on this system, fall back and re-encode with ffmpeg
             fourcc = cv2.VideoWriter_fourcc(*'mp4v')
             tmp_output = output_path.replace('.mp4', '_raw.mp4')
             out = cv2.VideoWriter(tmp_output, fourcc, fps, (width, height))
         else:
             tmp_output = None
         
-        # Reset per-video analyzer state (e.g. EMA smoothing history)
         self.pose_analyzer.reset()
 
-        # Initialize pose detection
         pose = mp.solutions.pose.Pose()
         
-        # Process frames
         good_frames = 0
         bad_frames = 0
         frame_count = 0
@@ -85,27 +77,22 @@ class VideoProcessor:
                 if not success:
                     break
                 
-                # Analyze frame
                 processed_frame, is_good, angles = self.pose_analyzer.analyze_frame(
                     frame, pose
                 )
                 
-                # Update counters
-                if angles is not None:  # Only count frames where pose was detected
+                if angles is not None:  
                     if is_good:
                         good_frames += 1
                     else:
                         bad_frames += 1
                 
-                # Add stats overlay
                 processed_frame = self.pose_analyzer.add_stats_overlay(
                     processed_frame, good_frames, bad_frames
                 )
                 
-                # Write frame
                 out.write(processed_frame)
                 
-                # Progress callback
                 frame_count += 1
                 if progress_callback:
                     progress_callback(frame_count, total_frames)
@@ -115,7 +102,6 @@ class VideoProcessor:
             out.release()
             pose.close()
         
-        # Re-encode to H.264 via ffmpeg if avc1 wasn't available
         if tmp_output is not None:
             import subprocess
             subprocess.run(
@@ -124,7 +110,6 @@ class VideoProcessor:
             )
             Path(tmp_output).unlink(missing_ok=True)
 
-        # Calculate final efficiency
         total = good_frames + bad_frames
         efficiency = (good_frames / total * 100.0) if total > 0 else 0.0
 

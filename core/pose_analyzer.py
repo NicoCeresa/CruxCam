@@ -7,7 +7,6 @@ from dataclasses import dataclass
 
 @dataclass
 class AnalysisResult:
-    """Results from pose analysis."""
     good_frames: int
     bad_frames: int
     efficiency: float
@@ -15,7 +14,6 @@ class AnalysisResult:
 
 
 class PoseAnalyzer:
-    """Analyzes climbing poses and calculates efficiency."""
     
     BLUE = (255, 127, 0)
     RED = (50, 50, 255)
@@ -121,7 +119,7 @@ class PoseAnalyzer:
         color: Tuple[int, int, int],
         alpha: float
     ) -> None:
-        """Draw a semi-transparent filled rectangle."""
+
         overlay = image.copy()
         cv2.rectangle(overlay, (x1, y1), (x2, y2), color, cv2.FILLED)
         cv2.addWeighted(overlay, alpha, image, 1 - alpha, 0, image)
@@ -164,10 +162,8 @@ class PoseAnalyzer:
         w: int
     ) -> None:
         """
-        Draw a weighted center-of-mass indicator.
-
-        Segment weights based on Winter (2009):
-          head 8%, torso 50%, each arm 5%, each leg 16%.
+        Weights for center of mass calculation based on body segments:
+        head 8%, torso 50%, each arm 5%, each leg 16%.
         Each segment centroid is the mean of its visible landmarks.
         """
         LP = self.mp_pose.PoseLandmark
@@ -201,7 +197,6 @@ class PoseAnalyzer:
         raw_x /= total_weight
         raw_y /= total_weight
 
-        # EMA smoothing
         if self._com_x is None:
             self._com_x, self._com_y = raw_x, raw_y
         else:
@@ -210,11 +205,9 @@ class PoseAnalyzer:
 
         mid_x, mid_y = int(self._com_x), int(self._com_y)
 
-        # Midpoint dot
         cv2.circle(img, (mid_x, mid_y), 7, self.BLUE, -1, cv2.LINE_AA)
         cv2.circle(img, (mid_x, mid_y), 9, (255, 255, 255), 1, cv2.LINE_AA)
 
-        # Label
         cv2.putText(
             img, "CoM", (mid_x + 12, mid_y + 5),
             cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255, 255, 255), 1, cv2.LINE_AA
@@ -244,11 +237,9 @@ class PoseAnalyzer:
         h, w = img.shape[:2]
         landmarks = results.pose_landmarks.landmark
         
-        # Get arm landmarks
         r_shoulder, r_elbow, r_wrist = self._get_arm_landmarks(landmarks, h, w, 'right')
         l_shoulder, l_elbow, l_wrist = self._get_arm_landmarks(landmarks, h, w, 'left')
         
-        # Calculate angles
         r_bicep_angle = self._calculate_angle(
             r_shoulder[0] - r_elbow[0], r_shoulder[1] - r_elbow[1],
             r_wrist[0] - r_elbow[0], r_wrist[1] - r_elbow[1]
@@ -258,12 +249,10 @@ class PoseAnalyzer:
             l_wrist[0] - l_elbow[0], l_wrist[1] - l_elbow[1]
         )
         
-        # Draw landmarks and classify
         is_good_frame = self._draw_landmarks_and_classify(
             img, results, r_bicep_angle, l_bicep_angle
         )
 
-        # Draw center of mass indicator
         self._draw_center_of_mass(img, landmarks, h, w)
 
         return img, is_good_frame, (r_bicep_angle, l_bicep_angle)
@@ -274,7 +263,7 @@ class PoseAnalyzer:
         good_frames: int,
         bad_frames: int
     ) -> np.ndarray:
-        """Add statistics overlay to the frame."""
+        
         total_frames = good_frames + bad_frames
         efficiency = (good_frames / total_frames * 100.0) if total_frames > 0 else 0.0
 
