@@ -57,10 +57,20 @@ class VideoProcessor:
             output_path = temp_file.name
             temp_file.close()
         
-        # Setup video writer
-        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        # Setup video writer — avc1 (H.264) is required for browser playback
+        fourcc = cv2.VideoWriter_fourcc(*'avc1')
         out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
+        if not out.isOpened():
+            # avc1 unavailable on this system, fall back and re-encode with ffmpeg
+            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+            tmp_output = output_path.replace('.mp4', '_raw.mp4')
+            out = cv2.VideoWriter(tmp_output, fourcc, fps, (width, height))
+        else:
+            tmp_output = None
         
+        # Reset per-video analyzer state (e.g. EMA smoothing history)
+        self.pose_analyzer.reset()
+
         # Initialize pose detection
         pose = mp.solutions.pose.Pose()
         
@@ -105,10 +115,19 @@ class VideoProcessor:
             out.release()
             pose.close()
         
+        # Re-encode to H.264 via ffmpeg if avc1 wasn't available
+        if tmp_output is not None:
+            import subprocess
+            subprocess.run(
+                ['ffmpeg', '-y', '-i', tmp_output, '-vcodec', 'libx264', '-acodec', 'aac', output_path],
+                check=True, capture_output=True
+            )
+            Path(tmp_output).unlink(missing_ok=True)
+
         # Calculate final efficiency
         total = good_frames + bad_frames
         efficiency = (good_frames / total * 100.0) if total > 0 else 0.0
-        
+
         return AnalysisResult(
             good_frames=good_frames,
             bad_frames=bad_frames,

@@ -1,5 +1,6 @@
 """CruxCam - Climbing Efficiency Analyzer with Pose Detection."""
 import streamlit as st
+import streamlit.components.v1 as components
 from pathlib import Path
 import tempfile
 import time
@@ -140,8 +141,18 @@ with tab1:
                         progress_bar.empty()
                         progress_text.empty()
                         
-                        st.success("✅ Processing complete! Check the Results tab.")
-                        st.balloons()
+                        st.success("✅ Processing complete!")
+                        components.html("""
+                            <script>
+                                const tabs = window.parent.document.querySelectorAll('[data-baseweb="tab"]');
+                                for (const tab of tabs) {
+                                    if (tab.innerText.includes("Results")) {
+                                        tab.click();
+                                        break;
+                                    }
+                                }
+                            </script>
+                        """, height=0)
                         
                     except Exception as e:
                         st.error(f"❌ Error processing video: {str(e)}")
@@ -207,18 +218,19 @@ with tab2:
         
         if result.efficiency >= 70:
             st.success(
-                "🎉 Excellent form! You maintained good arm extension throughout most of your climb. "
-                "This indicates efficient technique and proper body positioning."
+                "Great climbing! You kept your arms extended for most of the climb, letting your "
+                "skeleton bear the load instead of your muscles. This is the foundation of efficient movement."
             )
         elif result.efficiency >= 50:
             st.warning(
-                "⚠️ Room for improvement. Try to focus on extending your arms more and avoiding "
-                "over-gripping. This will help conserve energy and improve your endurance."
+                "You're spending too much time with bent arms. Pulling yourself into the wall burns "
+                "through your forearms fast — try to straighten up between moves and use your legs to drive upward."
             )
         else:
             st.error(
-                "🔴 Consider working on arm extension. Your technique shows frequent compressed positions. "
-                "Practice straight-arm hangs and focus on keeping your arms extended while climbing."
+                "Most of this climb was spent in a compressed, bunched-up position. "
+                "This puts constant load on your arms and will drain your energy quickly. "
+                "Focus on straight-arm hangs, pushing with your feet, and only bending when you're actively moving to the next hold."
             )
 
 with tab3:
@@ -226,34 +238,34 @@ with tab3:
     
     st.markdown(
         """
-        ### 🎯 Purpose
+        ### Purpose
         CruxCam analyzes climbing videos to provide feedback on technique efficiency. 
         By tracking arm angles and body position, it identifies when you're using 
         optimal form (extended arms) versus inefficient form (compressed, bent arms).
         
-        ### 🔬 Technology
+        ### Technology
         - **MediaPipe Pose Detection**: Real-time pose estimation
         - **OpenCV**: Video processing and analysis
         - **Streamlit**: Interactive web interface
         
-        ### 📏 Metrics Explained
+        ### Metrics Explained
         - **Good Frames**: Frames where arm angles exceed the threshold (proper extension)
         - **Bad Frames**: Frames where both arms are compressed below the threshold
         - **Efficiency**: Percentage of good frames relative to total analyzed frames
         
-        ### 🎨 Visual Indicators
+        ### Visual Indicators
         - 🟡 Yellow dots: Detected body landmarks
         - 🟢 Green connections: Good form detected
         - 🔴 Red connections: Poor form detected
         
-        ### 🚀 Future Features
+        ### Future Features
         - Instagram reel integration
         - 3D pose estimation
         - Video length validation
         - Multiple climber tracking
         - Historical progress tracking
         
-        ### 📝 Feedback
+        ### Feedback
         Found a bug or have a feature request? Open an issue on GitHub!
         """
     )

@@ -33,6 +33,13 @@ class PoseAnalyzer:
         self.angle_threshold = angle_threshold
         self.mp_pose = mp.solutions.pose
         self.mp_draw = mp.solutions.drawing_utils
+        self._com_alpha = 0.2  # EMA factor: lower = smoother, more lag
+        self.reset()
+
+    def reset(self) -> None:
+        """Reset per-video state. Call before processing each new video."""
+        self._com_x: Optional[float] = None
+        self._com_y: Optional[float] = None
         
     def _get_arm_landmarks(
         self, 
@@ -149,6 +156,70 @@ class PoseAnalyzer:
         
         return is_good_frame
     
+    def _draw_center_of_mass(
+        self,
+        img: np.ndarray,
+        landmarks,
+        h: int,
+        w: int
+    ) -> None:
+        """
+        Draw a weighted center-of-mass indicator.
+
+        Segment weights based on Winter (2009):
+          head 8%, torso 50%, each arm 5%, each leg 16%.
+        Each segment centroid is the mean of its visible landmarks.
+        """
+        LP = self.mp_pose.PoseLandmark
+
+        segments = {
+            'head':      (0.08, [LP.NOSE, LP.LEFT_EAR, LP.RIGHT_EAR]),
+            'torso':     (0.50, [LP.LEFT_SHOULDER, LP.RIGHT_SHOULDER, LP.LEFT_HIP, LP.RIGHT_HIP]),
+            'left_leg':  (0.16, [LP.LEFT_HIP,  LP.LEFT_KNEE,  LP.LEFT_ANKLE]),
+            'right_leg': (0.16, [LP.RIGHT_HIP, LP.RIGHT_KNEE, LP.RIGHT_ANKLE]),
+            'left_arm':  (0.05, [LP.LEFT_SHOULDER,  LP.LEFT_ELBOW,  LP.LEFT_WRIST]),
+            'right_arm': (0.05, [LP.RIGHT_SHOULDER, LP.RIGHT_ELBOW, LP.RIGHT_WRIST]),
+        }
+
+        raw_x, raw_y, total_weight = 0.0, 0.0, 0.0
+        for weight, lm_ids in segments.values():
+            pts = [
+                (landmarks[lm.value].x * w, landmarks[lm.value].y * h)
+                for lm in lm_ids
+                if landmarks[lm.value].visibility > 0.5
+            ]
+            if not pts:
+                continue
+            cx = sum(p[0] for p in pts) / len(pts)
+            cy = sum(p[1] for p in pts) / len(pts)
+            raw_x += weight * cx
+            raw_y += weight * cy
+            total_weight += weight
+
+        if total_weight == 0:
+            return
+        raw_x /= total_weight
+        raw_y /= total_weight
+
+        # EMA smoothing
+        if self._com_x is None:
+            self._com_x, self._com_y = raw_x, raw_y
+        else:
+            self._com_x = self._com_alpha * raw_x + (1 - self._com_alpha) * self._com_x
+            self._com_y = self._com_alpha * raw_y + (1 - self._com_alpha) * self._com_y
+
+        mid_x, mid_y = int(self._com_x), int(self._com_y)
+
+        # Midpoint dot
+        cv2.circle(img, (mid_x, mid_y), 7, self.BLUE, -1, cv2.LINE_AA)
+        cv2.circle(img, (mid_x, mid_y), 9, (255, 255, 255), 1, cv2.LINE_AA)
+
+        # Label
+        cv2.putText(
+            img, "CoM", (mid_x + 12, mid_y + 5),
+            cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255, 255, 255), 1, cv2.LINE_AA
+        )
+
     def analyze_frame(
         self,
         img: np.ndarray,
@@ -191,7 +262,10 @@ class PoseAnalyzer:
         is_good_frame = self._draw_landmarks_and_classify(
             img, results, r_bicep_angle, l_bicep_angle
         )
-        
+
+        # Draw center of mass indicator
+        self._draw_center_of_mass(img, landmarks, h, w)
+
         return img, is_good_frame, (r_bicep_angle, l_bicep_angle)
     
     def add_stats_overlay(
