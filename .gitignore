@@ -12,9 +12,11 @@ __pycache__/
 # OS
 .DS_Store
 
-# Data / generated files
-outputs/
-inputs/
+# Data / generated files — keep directory stubs, ignore contents
+outputs/*
+!outputs/.gitkeep
+inputs/*
+!inputs/.gitkeep
 
 # Notebooks
 notebooks/test_out/
