@@ -1,4 +1,3 @@
-"""Pose analysis logic for climbing efficiency detection."""
 import cv2
 import numpy as np
 import mediapipe as mp
@@ -18,7 +17,6 @@ class AnalysisResult:
 class PoseAnalyzer:
     """Analyzes climbing poses and calculates efficiency."""
     
-    # Color definitions
     BLUE = (255, 127, 0)
     RED = (50, 50, 255)
     GREEN = (127, 255, 0)
@@ -106,25 +104,20 @@ class PoseAnalyzer:
         
         return theta_deg
     
-    def _put_text_with_background(
+    def _draw_semi_transparent_rect(
         self,
         image: np.ndarray,
-        text: str,
-        position: Tuple[int, int],
-        font: int,
-        scale: float,
+        x1: int,
+        y1: int,
+        x2: int,
+        y2: int,
         color: Tuple[int, int, int],
-        thickness: int,
-        bg_color: Tuple[int, int, int]
+        alpha: float
     ) -> None:
-        """Draw text with a background rectangle."""
-        (text_width, text_height), baseline = cv2.getTextSize(
-            text, font, scale, thickness
-        )
-        bottom_left = (position[0], position[1] + baseline)
-        top_right = (position[0] + text_width, position[1] - text_height - baseline)
-        cv2.rectangle(image, bottom_left, top_right, bg_color, cv2.FILLED)
-        cv2.putText(image, text, position, font, scale, color, thickness)
+        """Draw a semi-transparent filled rectangle."""
+        overlay = image.copy()
+        cv2.rectangle(overlay, (x1, y1), (x2, y2), color, cv2.FILLED)
+        cv2.addWeighted(overlay, alpha, image, 1 - alpha, 0, image)
     
     def _draw_landmarks_and_classify(
         self,
@@ -177,7 +170,7 @@ class PoseAnalyzer:
         if not results.pose_landmarks:
             return img, True, None
         
-        h, w, c = img.shape
+        h, w = img.shape[:2]
         landmarks = results.pose_landmarks.landmark
         
         # Get arm landmarks
@@ -210,20 +203,58 @@ class PoseAnalyzer:
         """Add statistics overlay to the frame."""
         total_frames = good_frames + bad_frames
         efficiency = (good_frames / total_frames * 100.0) if total_frames > 0 else 0.0
-        
+
+        h, w = img.shape[:2]
         font = cv2.FONT_HERSHEY_SIMPLEX
-        
-        self._put_text_with_background(
-            img, f"Climbing Efficiency: {efficiency:.2f}%",
-            (10, 45), font, 1, self.BLUE, 1, self.BLACK
+
+        # Panel dimensions (top-left corner)
+        pad = 12
+        panel_w = 260
+        panel_h = 110
+        panel_x, panel_y = 16, 16
+
+        # Semi-transparent dark panel
+        self._draw_semi_transparent_rect(
+            img, panel_x, panel_y, panel_x + panel_w, panel_y + panel_h,
+            (20, 20, 20), alpha=0.6
         )
-        self._put_text_with_background(
-            img, f"Good: {good_frames}",
-            (10, 70), font, 0.5, self.GREEN, 1, self.BLACK
-        )
-        self._put_text_with_background(
-            img, f"Bad: {bad_frames}",
-            (10, 100), font, 0.5, self.RED, 1, self.BLACK
-        )
-        
+
+        # Thin border around panel
+        cv2.rectangle(img, (panel_x, panel_y), (panel_x + panel_w, panel_y + panel_h),
+                      (80, 80, 80), 1)
+
+        # --- Title ---
+        cv2.putText(img, "CruxCam", (panel_x + pad, panel_y + 28),
+                    font, 0.65, (200, 200, 200), 1, cv2.LINE_AA)
+
+        # --- Efficiency score, color-coded ---
+        if efficiency >= 70:
+            score_color = self.GREEN
+        elif efficiency >= 50:
+            score_color = self.YELLOW
+        else:
+            score_color = self.RED
+
+        cv2.putText(img, f"{efficiency:.1f}%", (panel_x + pad, panel_y + 60),
+                    font, 1.1, score_color, 2, cv2.LINE_AA)
+
+        # --- Efficiency bar ---
+        bar_x = panel_x + pad
+        bar_y = panel_y + 70
+        bar_w = panel_w - 2 * pad
+        bar_h = 8
+        bar_fill = int(bar_w * efficiency / 100)
+
+        cv2.rectangle(img, (bar_x, bar_y), (bar_x + bar_w, bar_y + bar_h),
+                      (60, 60, 60), cv2.FILLED)
+        if bar_fill > 0:
+            cv2.rectangle(img, (bar_x, bar_y), (bar_x + bar_fill, bar_y + bar_h),
+                          score_color, cv2.FILLED)
+
+        # --- Good / Bad frame counts ---
+        cv2.putText(img, f"Good  {good_frames}", (panel_x + pad, panel_y + 98),
+                    font, 0.45, self.GREEN, 1, cv2.LINE_AA)
+        cv2.putText(img, f"Bad  {bad_frames}", (panel_x + pad + 110, panel_y + 98),
+                    font, 0.45, self.RED, 1, cv2.LINE_AA)
+
         return img

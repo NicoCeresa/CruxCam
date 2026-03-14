@@ -1,4 +1,20 @@
-
-docs/
-notebooks/test_out/
+# Virtual environments
+crux_cam/
 CruxCam/
+venv/
+.venv/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# OS
+.DS_Store
+
+# Data / generated files
+outputs/
+inputs/
+
+# Notebooks
+notebooks/test_out/
