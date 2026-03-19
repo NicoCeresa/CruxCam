@@ -66,3 +66,4 @@ efficiency = (good_frames / total_frames) × 100
 - 3D pose estimation
 - Multi-climber tracking
 - Progress tracking over time
+- Use Independent Component Analysis (ICA) to extract holds from the wall and analyze hold usage patterns
