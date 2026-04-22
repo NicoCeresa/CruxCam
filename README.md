@@ -6,10 +6,13 @@ A Streamlit web app that analyzes climbing videos using pose detection to score 
 
 CruxCam uses MediaPipe to detect body landmarks on each frame of a climbing video. It calculates the angle at each elbow joint and classifies the frame as **good** (arms extended) or **bad** (arms bent/compressed). The final efficiency score is the percentage of good frames.
 
+It also estimates the climber's **center of mass (CoM)** each frame using biomechanically weighted body segments (head 8%, torso 50%, each arm 5%, each leg 16%), smoothed over time with an exponential moving average to reduce jitter.
+
 **Visual indicators in the output video:**
 - Yellow dots — detected body landmarks
 - Green connections — good arm position
 - Red connections — poor arm position
+- Blue dot (labeled "CoM") — smoothed center of mass
 - On-screen panel — live efficiency %, progress bar, and frame counts
 
 ## Stack
