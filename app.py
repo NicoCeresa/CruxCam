@@ -2,7 +2,6 @@
 import os
 from typing import Optional
 import streamlit as st
-import streamlit.components.v1 as components
 from pathlib import Path
 import tempfile
 import time
@@ -252,39 +251,10 @@ if 'trim_end' not in st.session_state:
 st.title("CruxCam")
 st.caption("Climbing efficiency analysis via pose detection.")
 
-# Sidebar
-with st.sidebar:
-    st.markdown("**Settings**")
-    angle_threshold = st.slider(
-        "Angle threshold (degrees)",
-        min_value=30,
-        max_value=120,
-        value=90,
-        step=5,
-        help="Minimum arm angle to be considered a good frame"
-    )
-
-    use_3d = st.toggle(
-        "3D pose mode",
-        value=True,
-        help="Use 3D world landmarks for angle and CoM calculations. More accurate for arms reaching toward or away from the camera."
-    )
-
-    st.markdown("---")
-    st.markdown(
-        """
-        **Key**
-        - Green skeleton — good arm position
-        - Red skeleton — compressed arm position
-        - Blue dot — center of mass
-        """
-    )
-
 # Tabs
-tab1, tab2, tab3 = st.tabs(["Upload", "Results", "About"])
+tab1, tab2 = st.tabs(["Analyze", "Compare"])
 
 with tab1:
-    st.subheader("Upload video")
 
     col1, col2 = st.columns([2, 1])
 
@@ -342,6 +312,17 @@ with tab1:
             st.stop()
 
         st.markdown("---")
+        _, angle_col = st.columns([3, 1])
+        with angle_col:
+            angle_threshold = st.slider(
+                "Angle threshold",
+                min_value=30,
+                max_value=120,
+                value=90,
+                step=5,
+                help="Minimum arm angle to be considered a good frame",
+            )
+
         st.markdown("**Trim**")
         total = video_info['total_frames']
 
@@ -387,7 +368,7 @@ with tab1:
                     files={"video": (video_name, video_bytes_for_upload, "video/mp4")},
                     params={
                         "angle_threshold": angle_threshold,
-                        "use_3d": use_3d,
+                        "use_3d": True,
                         "start_frame": st.session_state.trim_start,
                         "end_frame": st.session_state.trim_end,
                         "preview_id": st.session_state.preview_id,
@@ -435,29 +416,15 @@ with tab1:
                 progress_bar.empty()
                 progress_text.empty()
 
-                st.success("Done. See the Results tab.")
-                components.html("""
-                    <script>
-                        const tabs = window.parent.document.querySelectorAll('[data-baseweb="tab"]');
-                        for (const tab of tabs) {
-                            if (tab.innerText.includes("Results")) {
-                                tab.click();
-                                break;
-                            }
-                        }
-                    </script>
-                """, height=0)
+                st.rerun()
 
             except Exception as e:
                 st.error(f"Error: {e}")
 
-with tab2:
-    st.subheader("Results")
-
-    if st.session_state.analysis_result is None:
-        st.markdown("Upload and process a video to see results here.")
-    else:
+    if st.session_state.analysis_result is not None:
         result = st.session_state.analysis_result
+
+        st.markdown("---")
 
         # Metrics
         metric_cols = st.columns(3)
@@ -499,7 +466,7 @@ with tab2:
                 "and only bending when actively moving to the next hold."
             )
 
-        # Side-by-side frame review
+        # Frame review
         st.markdown("---")
         st.markdown("**Frame review**")
 
@@ -510,7 +477,6 @@ with tab2:
 
         if video_exists and detected_frames:
             _frame_review(detected_frames, result.processed_video_path, st.session_state.video_fps)
-
         elif video_exists:
             with open(result.processed_video_path, 'rb') as vf:
                 video_bytes = vf.read()
@@ -524,38 +490,8 @@ with tab2:
         else:
             st.warning("Processed video file not found.")
 
-with tab3:
-    st.subheader("About")
-
-    st.markdown(
-        """
-        CruxCam analyzes climbing videos to provide feedback on technique efficiency.
-        By tracking arm angles and body position, it identifies when you are using
-        optimal form (extended arms) versus inefficient form (compressed, bent arms).
-
-        **Technology**
-        - MediaPipe Pose — 2D/3D landmark detection
-        - OpenCV — video processing
-        - Streamlit — interface
-        - Plotly — 3D skeleton viewer
-
-        **Metrics**
-        - Good frames — arm angle exceeds the threshold
-        - Bad frames — both arms compressed below the threshold
-        - Efficiency — good frames as a percentage of total analyzed frames
-
-        **Visual indicators on the processed video**
-        - Yellow dots — detected body landmarks
-        - Green connections — good form
-        - Red connections — poor form
-        - Blue dot — center of mass (labeled with depth when in 3D mode)
-
-        **Planned**
-        - Instagram reel integration
-        - Multiple climber tracking
-        - Historical progress tracking
-        """
-    )
+with tab2:
+    st.markdown("Video comparison coming soon.")
 
 st.markdown("---")
 st.caption("CruxCam — climbing efficiency analysis")
