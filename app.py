@@ -1,5 +1,6 @@
 """CruxCam - Climbing Efficiency Analyzer with Pose Detection."""
 import os
+from typing import Optional
 import streamlit as st
 import streamlit.components.v1 as components
 from pathlib import Path
@@ -27,75 +28,84 @@ def _get_video_frame(video_path: str, frame_num: int):
 
 
 @st.cache_data
-def _build_plotly_frames(video_path: str, _detected_frames: list, fps: int):
+def _fetch_preview_frame(preview_id: str, n: int) -> Optional[np.ndarray]:
+    """Fetch a single frame from the preview endpoint and return as RGB ndarray."""
+    try:
+        resp = requests.get(
+            f"{API_BASE_URL}/frame/{preview_id}",
+            params={"n": n},
+            timeout=5,
+        )
+        if resp.status_code == 200:
+            arr = np.frombuffer(resp.content, np.uint8)
+            frame = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+            return cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    except Exception:
+        pass
+    return None
+
+
+
+@st.cache_data
+def _axis_ranges(video_path: str, _detected_frames: list):
     """
-    Pre-build all Plotly animation frames. Cached per video path so scrubbing
-    the Streamlit slider doesn't rebuild the full frame list on every rerun.
-    Leading underscore on _detected_frames tells st.cache_data not to hash it;
-    video_path (UUID-based) is the effective cache key.
+    Compute equal-span axis ranges across all frames.
+    All three axes get the same span (largest dimension wins) so
+    aspectmode='cube' renders the skeleton without distortion.
     """
-    mp_pose = mp.solutions.pose
-    lm_names = [lm.name for lm in mp_pose.PoseLandmark]
-    frame_duration_ms = 1000 / max(fps, 1)
+    all_x, all_y, all_z = [], [], []
+    for (_, wlms, _, _) in _detected_frames:
+        all_x.extend(wlms[:, 0])
+        all_y.extend(wlms[:, 2])
+        all_z.extend(-wlms[:, 1])
 
-    com_xs, com_ys, com_zs = [], [], []
-    for (_, _, _, c) in _detected_frames:
-        if c:
-            com_xs.append(c[0])
-            com_ys.append(c[2])
-            com_zs.append(-c[1])
+    cx = (min(all_x) + max(all_x)) / 2
+    cy = (min(all_y) + max(all_y)) / 2
+    cz = (min(all_z) + max(all_z)) / 2
+    half = max(
+        max(all_x) - min(all_x),
+        max(all_y) - min(all_y),
+        max(all_z) - min(all_z),
+    ) / 2 + 0.1
 
-    animation_frames = []
-    for i, (_, wlms, good, c) in enumerate(_detected_frames):
-        xs, ys, zs = wlms[:, 0], wlms[:, 2], -wlms[:, 1]
-        bone_color = '#4ade80' if good else '#f87171'
-        bx, by, bz = [], [], []
-        for s, e in mp_pose.POSE_CONNECTIONS:
-            bx += [xs[s], xs[e], None]
-            by += [ys[s], ys[e], None]
-            bz += [zs[s], zs[e], None]
-        animation_frames.append(go.Frame(
-            data=[
-                go.Scatter3d(x=bx, y=by, z=bz, mode='lines', line=dict(color=bone_color, width=3)),
-                go.Scatter3d(x=xs, y=ys, z=zs, mode='markers',
-                             marker=dict(size=3, color='#e5e7eb'),
-                             hovertext=lm_names, hoverinfo='text'),
-                go.Scatter3d(
-                    x=[c[0]] if c else [], y=[c[2]] if c else [], z=[-c[1]] if c else [],
-                    mode='markers', marker=dict(size=7, color='#60a5fa', symbol='diamond'),
-                ),
-            ],
-            traces=[0, 1, 3],
-            name=str(i),
-        ))
-
-    return animation_frames, com_xs, com_ys, com_zs, frame_duration_ms
+    return (
+        [cx - half, cx + half],
+        [cy - half, cy + half],
+        [cz - half, cz + half],
+    )
 
 
 @st.fragment
 def _frame_review(detected_frames: list, video_path: str, fps: int) -> None:
     """
-    Side-by-side video frame + animated 3D skeleton viewer.
-    Plotly handles playback at the correct FPS client-side.
-    The Streamlit slider scrubs the video frame and sets the Plotly starting position.
+    Side-by-side annotated video frame + 3D skeleton viewer.
+    A single Play/Pause button advances both panels in sync via st.rerun(scope="fragment").
     """
     max_idx = len(detected_frames) - 1
 
     if st.session_state.frame_idx > max_idx:
         st.session_state.frame_idx = 0
 
+    ctrl_col, slider_col = st.columns([1, 11])
+    with ctrl_col:
+        btn_label = "Pause" if st.session_state.playing else "Play"
+        if st.button(btn_label, use_container_width=True):
+            st.session_state.playing = not st.session_state.playing
+
     def _on_scrub():
         st.session_state.frame_idx = st.session_state.frame_slider
+        st.session_state.playing = False
 
     st.session_state["frame_slider"] = st.session_state.frame_idx
-    st.slider(
-        "Frame",
-        min_value=0,
-        max_value=max_idx,
-        key="frame_slider",
-        help="Scrub through detected pose frames",
-        on_change=_on_scrub,
-    )
+    with slider_col:
+        st.slider(
+            "Frame",
+            min_value=0,
+            max_value=max_idx,
+            key="frame_slider",
+            help="Scrub through detected pose frames",
+            on_change=_on_scrub,
+        )
 
     frame_num, world_lms, is_good, com = detected_frames[st.session_state.frame_idx]
 
@@ -112,17 +122,8 @@ def _frame_review(detected_frames: list, video_path: str, fps: int) -> None:
     with pose_col:
         st.caption("3D skeleton")
 
-        animation_frames, com_xs, com_ys, com_zs, frame_duration_ms = (
-            _build_plotly_frames(video_path, detected_frames, fps)
-        )
-
-        # Initial display state (driven by the Streamlit scrub slider)
-        idx = st.session_state.frame_idx
-        init_wlms = detected_frames[idx][1]
-        init_good = detected_frames[idx][2]
-        init_com  = detected_frames[idx][3]
-        xs, ys, zs = init_wlms[:, 0], init_wlms[:, 2], -init_wlms[:, 1]
-        bone_color = '#4ade80' if init_good else '#f87171'
+        xs, ys, zs = world_lms[:, 0], world_lms[:, 2], -world_lms[:, 1]
+        bone_color = '#4ade80' if is_good else '#f87171'
         lm_names = [lm.name for lm in mp.solutions.pose.PoseLandmark]
 
         bx, by, bz = [], [], []
@@ -131,89 +132,35 @@ def _frame_review(detected_frames: list, video_path: str, fps: int) -> None:
             by += [ys[s], ys[e], None]
             bz += [zs[s], zs[e], None]
 
-        fig = go.Figure(
-            data=[
-                go.Scatter3d(x=bx, y=by, z=bz, mode='lines',
-                             line=dict(color=bone_color, width=3), name='Skeleton'),
-                go.Scatter3d(x=xs, y=ys, z=zs, mode='markers',
-                             marker=dict(size=3, color='#e5e7eb'), name='Joints',
-                             hovertext=lm_names, hoverinfo='text'),
-                go.Scatter3d(x=com_xs, y=com_ys, z=com_zs, mode='lines',
-                             line=dict(color='rgba(96,165,250,0.4)', width=2), name='CoM path'),
-                go.Scatter3d(
-                    x=[init_com[0]] if init_com else [],
-                    y=[init_com[2]] if init_com else [],
-                    z=[-init_com[1]] if init_com else [],
-                    mode='markers', marker=dict(size=7, color='#60a5fa', symbol='diamond'),
-                    name='CoM',
-                ),
-            ],
-            frames=animation_frames,
-            layout=go.Layout(
-                updatemenus=[{
-                    'type': 'buttons',
-                    'showactive': False,
-                    'y': 0, 'x': 0.5, 'xanchor': 'center', 'yanchor': 'top',
-                    'pad': {'t': 45},
-                    'buttons': [
-                        {
-                            'label': 'Play',
-                            'method': 'animate',
-                            'args': [None, {
-                                'frame': {'duration': frame_duration_ms, 'redraw': True},
-                                'fromcurrent': True,
-                                'transition': {'duration': 0},
-                            }],
-                        },
-                        {
-                            'label': 'Pause',
-                            'method': 'animate',
-                            'args': [[None], {
-                                'frame': {'duration': 0, 'redraw': False},
-                                'mode': 'immediate',
-                                'transition': {'duration': 0},
-                            }],
-                        },
-                    ],
-                }],
-                sliders=[{
-                    'active': idx,
-                    'currentvalue': {'prefix': 'Frame: ', 'font': {'color': '#6b7280'}},
-                    'pad': {'t': 50},
-                    'bgcolor': '#1f1f1f',
-                    'bordercolor': '#374151',
-                    'tickcolor': '#374151',
-                    'font': {'color': '#6b7280'},
-                    'steps': [
-                        {
-                            'args': [[str(i)], {
-                                'frame': {'duration': frame_duration_ms, 'redraw': True},
-                                'mode': 'immediate',
-                                'transition': {'duration': 0},
-                            }],
-                            'label': '',
-                            'method': 'animate',
-                        }
-                        for i in range(len(animation_frames))
-                    ],
-                }],
-            ),
-        )
+        x_range, y_range, z_range = _axis_ranges(video_path, detected_frames)
 
+        fig = go.Figure(data=[
+            go.Scatter3d(x=bx, y=by, z=bz, mode='lines',
+                         line=dict(color=bone_color, width=3), name='Skeleton'),
+            go.Scatter3d(x=xs, y=ys, z=zs, mode='markers',
+                         marker=dict(size=3, color='#e5e7eb'), name='Joints',
+                         hovertext=lm_names, hoverinfo='text'),
+            go.Scatter3d(
+                x=[com[0]] if com else [], y=[com[2]] if com else [], z=[-com[1]] if com else [],
+                mode='markers', marker=dict(size=7, color='#60a5fa', symbol='diamond'),
+                name='CoM',
+            ),
+        ])
         fig.update_layout(
             scene=dict(
                 xaxis_title='x (m)',
                 yaxis_title='depth (m)',
                 zaxis_title='y (m)',
                 bgcolor='#0e0e0e',
-                xaxis=dict(color='#6b7280', gridcolor='#1f1f1f', showbackground=False),
-                yaxis=dict(color='#6b7280', gridcolor='#1f1f1f', showbackground=False),
-                zaxis=dict(color='#6b7280', gridcolor='#1f1f1f', showbackground=False),
+                aspectmode='cube',
+                xaxis=dict(color='#6b7280', gridcolor='#1f1f1f', showbackground=False, range=x_range),
+                yaxis=dict(color='#6b7280', gridcolor='#1f1f1f', showbackground=False, range=y_range),
+                zaxis=dict(color='#6b7280', gridcolor='#1f1f1f', showbackground=False, range=z_range),
             ),
             paper_bgcolor='#0e0e0e',
             font=dict(color='#9ca3af', size=11),
-            height=560,
-            margin=dict(l=0, r=0, b=110, t=0),
+            height=500,
+            margin=dict(l=0, r=0, b=0, t=0),
             legend=dict(bgcolor='rgba(0,0,0,0)', font=dict(color='#6b7280', size=10)),
         )
         st.plotly_chart(fig, use_container_width=True)
@@ -232,6 +179,15 @@ def _frame_review(detected_frames: list, video_path: str, fps: int) -> None:
             mime="video/mp4",
             use_container_width=True,
         )
+
+    # Advance both panels in sync — only reruns this fragment
+    if st.session_state.playing:
+        if st.session_state.frame_idx < max_idx:
+            st.session_state.frame_idx += 1
+        else:
+            st.session_state.playing = False
+        time.sleep(1 / max(fps, 1))
+        st.rerun(scope="fragment")
 
 
 st.set_page_config(
@@ -281,8 +237,16 @@ if 'analysis_result' not in st.session_state:
     st.session_state.analysis_result = None
 if 'frame_idx' not in st.session_state:
     st.session_state.frame_idx = 0
+if 'playing' not in st.session_state:
+    st.session_state.playing = False
 if 'video_fps' not in st.session_state:
     st.session_state.video_fps = 30
+if 'preview_id' not in st.session_state:
+    st.session_state.preview_id = None
+if 'trim_start' not in st.session_state:
+    st.session_state.trim_start = 0
+if 'trim_end' not in st.session_state:
+    st.session_state.trim_end = 0
 
 # Header
 st.title("CruxCam")
@@ -359,6 +323,9 @@ with tab1:
             info_resp.raise_for_status()
             video_info = info_resp.json()
             st.session_state.video_fps = video_info['fps']
+            st.session_state.preview_id = video_info['preview_id']
+            st.session_state.trim_start = 0
+            st.session_state.trim_end = video_info['total_frames'] - 1
 
             st.success(f"Loaded **{video_name}**")
             info_cols = st.columns(4)
@@ -375,6 +342,40 @@ with tab1:
             st.stop()
 
         st.markdown("---")
+        st.markdown("**Trim**")
+        total = video_info['total_frames']
+
+        img_col1, slider_col, img_col2 = st.columns([1, 8, 1])
+
+        with slider_col:
+            new_start, new_end = st.slider(
+                "Trim range",
+                min_value=0,
+                max_value=total - 1,
+                value=(st.session_state.trim_start, st.session_state.trim_end),
+                key="trim_range_slider",
+                label_visibility="collapsed",
+            )
+            st.session_state.trim_start = new_start
+            st.session_state.trim_end = new_end
+
+        if st.session_state.preview_id:
+            with img_col1:
+                frame = _fetch_preview_frame(st.session_state.preview_id, new_start)
+                if frame is not None:
+                    st.image(frame, use_container_width=True)
+                    st.caption(f"{new_start}")
+            with img_col2:
+                frame = _fetch_preview_frame(st.session_state.preview_id, new_end)
+                if frame is not None:
+                    st.image(frame, use_container_width=True)
+                    st.caption(f"{new_end}")
+
+        trimmed_frames = st.session_state.trim_end - st.session_state.trim_start
+        trimmed_duration = trimmed_frames / max(video_info['fps'], 1)
+        st.caption(f"{trimmed_frames} frames · {trimmed_duration:.1f}s selected")
+
+        st.markdown("---")
         if st.button("Process video", type="primary", use_container_width=True):
             progress_bar = st.progress(0)
             progress_text = st.empty()
@@ -384,7 +385,13 @@ with tab1:
                 upload_resp = requests.post(
                     f"{API_BASE_URL}/upload",
                     files={"video": (video_name, video_bytes_for_upload, "video/mp4")},
-                    params={"angle_threshold": angle_threshold, "use_3d": use_3d},
+                    params={
+                        "angle_threshold": angle_threshold,
+                        "use_3d": use_3d,
+                        "start_frame": st.session_state.trim_start,
+                        "end_frame": st.session_state.trim_end,
+                        "preview_id": st.session_state.preview_id,
+                    },
                     timeout=30,
                 )
                 upload_resp.raise_for_status()
@@ -399,17 +406,19 @@ with tab1:
                     status = status_resp.json()
 
                     if status["status"] == "complete":
-                        progress_bar.progress(1.0)
+                        progress_bar.progress(1.0, text="Done")
                         break
                     if status["status"] == "failed":
                         raise RuntimeError(status.get("error", "Processing failed"))
 
-                    progress = status.get("progress", 0.0)
-                    current = int(progress * video_info["total_frames"])
-                    total = video_info["total_frames"]
-                    progress_bar.progress(progress)
-                    progress_text.text(f"Frame {current} / {total}")
-                    time.sleep(0.5)
+                    if status["status"] in ("pending", "processing") and status.get("progress", 0.0) == 0.0:
+                        progress_bar.progress(0.0, text="Waiting for worker...")
+                    else:
+                        progress = status.get("progress", 0.0)
+                        trimmed_total = max(1, st.session_state.trim_end - st.session_state.trim_start)
+                        current = int(progress * trimmed_total)
+                        progress_bar.progress(progress, text=f"Frame {current} / {trimmed_total}")
+                    time.sleep(0.1)
 
                 # Fetch and deserialize result
                 result_resp = requests.get(
@@ -421,6 +430,7 @@ with tab1:
                 st.session_state.processed_video_path = result.processed_video_path
                 st.session_state.analysis_result = result
                 st.session_state.frame_idx = 0
+                st.session_state.playing = False
 
                 progress_bar.empty()
                 progress_text.empty()

@@ -22,14 +22,8 @@ build/
 Thumbs.db
 
 # ── Data / generated files ─────────────────────────────────────────────────────
-# Keep directory stubs via .gitkeep; ignore all content
-outputs/*
-!outputs/.gitkeep
 inputs/*
 !inputs/.gitkeep
-
-# Backend upload staging — never commit user videos
-uploads/
 
 # ── Celery ─────────────────────────────────────────────────────────────────────
 celerybeat-schedule
