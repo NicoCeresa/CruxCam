@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Optional
 import numpy as np
 from .celery_app import celery_app
 from core.pose_analyzer import AnalysisResult, PoseAnalyzer
@@ -56,6 +57,8 @@ def process_video_task(
     output_path: str,
     angle_threshold: int = 90,
     use_3d: bool = True,
+    start_frame: int = 0,
+    end_frame: Optional[int] = None,
 ) -> dict:
     """
     Celery task that wraps VideoProcessor.process_video.
@@ -73,7 +76,10 @@ def process_video_task(
             PoseAnalyzer(angle_threshold=angle_threshold, use_3d=use_3d)
         )
         result = processor.process_video(
-            input_path, output_path, progress_callback=_progress
+            input_path, output_path,
+            progress_callback=_progress,
+            start_frame=start_frame,
+            end_frame=end_frame,
         )
         return serialize_result(result)
     finally:

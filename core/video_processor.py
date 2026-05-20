@@ -24,7 +24,9 @@ class VideoProcessor:
         self,
         input_path: str,
         output_path: Optional[str] = None,
-        progress_callback: Optional[Callable[[int, int], None]] = None
+        progress_callback: Optional[Callable[[int, int], None]] = None,
+        start_frame: int = 0,
+        end_frame: Optional[int] = None,
     ) -> AnalysisResult:
         """
         Process video file and analyze climbing efficiency.
@@ -47,7 +49,11 @@ class VideoProcessor:
         fps = int(cap.get(cv2.CAP_PROP_FPS))
         width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        raw_total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+
+        start_frame = max(0, start_frame)
+        end_frame = min(end_frame, raw_total) if end_frame is not None else raw_total
+        total_frames = end_frame - start_frame
         
         if output_path is None:
             temp_file = tempfile.NamedTemporaryFile(
@@ -84,7 +90,8 @@ class VideoProcessor:
 
         def _reader():
             try:
-                while True:
+                cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
+                for _ in range(total_frames):
                     ok, frame = cap.read()
                     if not ok:
                         break
