@@ -147,6 +147,9 @@ class VideoProcessor:
             pose.close()
             cap.release()
 
+        if reader_exc[0]:
+            raise reader_exc[0]
+
         writer_thread.join()
         out.release()
 

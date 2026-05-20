@@ -2,7 +2,7 @@ import cv2
 import numpy as np
 import mediapipe as mp
 from typing import List, Tuple, Optional
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 
 @dataclass
@@ -14,7 +14,7 @@ class AnalysisResult:
     # Each entry: (frame_num, world_lms_33x3, is_good, com_xyz)
     # world_lms_33x3 is None when MediaPipe world landmarks unavailable
     # com_xyz is None when use_3d=False
-    pose_data_3d: Optional[List] = field(default=None)
+    pose_data_3d: Optional[List] = None
 
 
 class PoseAnalyzer:

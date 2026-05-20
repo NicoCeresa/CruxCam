@@ -1,22 +1,47 @@
-# Virtual environments
+# ── Virtual environments ───────────────────────────────────────────────────────
 crux_cam/
 CruxCam/
 venv/
 .venv/
 
-# Python
+# ── Python ─────────────────────────────────────────────────────────────────────
 __pycache__/
 *.pyc
 *.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
 
-# OS
-.DS_Store
+# ── Environment / secrets ──────────────────────────────────────────────────────
+.env
+.env.*
 
-# Data / generated files — keep directory stubs, ignore contents
+# ── OS ─────────────────────────────────────────────────────────────────────────
+**/.DS_Store
+Thumbs.db
+
+# ── Data / generated files ─────────────────────────────────────────────────────
+# Keep directory stubs via .gitkeep; ignore all content
 outputs/*
 !outputs/.gitkeep
 inputs/*
 !inputs/.gitkeep
 
-# Notebooks
+# Backend upload staging — never commit user videos
+uploads/
+
+# ── Celery ─────────────────────────────────────────────────────────────────────
+celerybeat-schedule
+celerybeat-schedule.db
+celerybeat.pid
+
+# ── Streamlit ──────────────────────────────────────────────────────────────────
+.streamlit/secrets.toml
+
+# ── Notebooks ──────────────────────────────────────────────────────────────────
 notebooks/test_out/
+.ipynb_checkpoints/
+
+# ── Personal reference ─────────────────────────────────────────────────────────
+ARCHITECTURE.md
