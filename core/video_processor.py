@@ -1,6 +1,8 @@
 """Video processing utilities for CruxCam."""
 import cv2
+import queue
 import tempfile
+import threading
 from pathlib import Path
 from typing import Optional, Callable, Generator
 import mediapipe as mp
@@ -66,41 +68,90 @@ class VideoProcessor:
         self.pose_analyzer.reset()
 
         pose = mp.solutions.pose.Pose()
-        
+
         good_frames = 0
         bad_frames = 0
         frame_count = 0
-        
+        pose_data_3d = []
+
+        # Pipeline: reader thread → frame_q → inference (main) → write_q → writer thread
+        # Overlaps disk I/O with pose inference so reads and writes don't stall the CPU.
+        _DONE = object()
+        frame_q = queue.Queue(maxsize=8)
+        write_q = queue.Queue(maxsize=8)
+        reader_exc: list = [None]
+        writer_exc: list = [None]
+
+        def _reader():
+            try:
+                while True:
+                    ok, frame = cap.read()
+                    if not ok:
+                        break
+                    frame_q.put(frame)
+            except Exception as exc:
+                reader_exc[0] = exc
+            finally:
+                frame_q.put(_DONE)
+
+        def _writer():
+            try:
+                while True:
+                    item = write_q.get()
+                    if item is _DONE:
+                        break
+                    out.write(item)
+            except Exception as exc:
+                writer_exc[0] = exc
+
+        reader_thread = threading.Thread(target=_reader, daemon=True)
+        writer_thread = threading.Thread(target=_writer, daemon=True)
+        reader_thread.start()
+        writer_thread.start()
+
         try:
-            while cap.isOpened():
-                success, frame = cap.read()
-                if not success:
+            while True:
+                frame = frame_q.get()
+                if frame is _DONE:
                     break
-                
-                processed_frame, is_good, angles = self.pose_analyzer.analyze_frame(
+                if reader_exc[0]:
+                    raise reader_exc[0]
+
+                processed_frame, is_good, angles, world_lms = self.pose_analyzer.analyze_frame(
                     frame, pose
                 )
-                
-                if angles is not None:  
+
+                if angles is not None:
                     if is_good:
                         good_frames += 1
                     else:
                         bad_frames += 1
-                
+                    pose_data_3d.append((
+                        frame_count,
+                        world_lms,
+                        is_good,
+                        self.pose_analyzer.com_3d
+                    ))
+
                 processed_frame = self.pose_analyzer.add_stats_overlay(
                     processed_frame, good_frames, bad_frames
                 )
-                
-                out.write(processed_frame)
-                
+                write_q.put(processed_frame)
+
                 frame_count += 1
                 if progress_callback:
                     progress_callback(frame_count, total_frames)
-                    
+
         finally:
-            cap.release()
-            out.release()
+            write_q.put(_DONE)
             pose.close()
+            cap.release()
+
+        writer_thread.join()
+        out.release()
+
+        if writer_exc[0]:
+            raise writer_exc[0]
         
         if tmp_output is not None:
             import subprocess
@@ -117,7 +168,8 @@ class VideoProcessor:
             good_frames=good_frames,
             bad_frames=bad_frames,
             efficiency=efficiency,
-            processed_video_path=output_path
+            processed_video_path=output_path,
+            pose_data_3d=pose_data_3d if pose_data_3d else None
         )
     
     def get_video_info(self, video_path: str) -> dict:

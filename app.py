@@ -4,6 +4,9 @@ import streamlit.components.v1 as components
 from pathlib import Path
 import tempfile
 import time
+import numpy as np
+import plotly.graph_objects as go
+import mediapipe as mp
 from core.pose_analyzer import PoseAnalyzer
 from core.video_processor import VideoProcessor
 
@@ -40,7 +43,13 @@ with st.sidebar:
         step=5,
         help="Minimum arm angle to be considered a 'good' frame"
     )
-    
+
+    use_3d = st.toggle(
+        "3D Pose Mode",
+        value=True,
+        help="Use 3D world landmarks for angle and CoM calculations. More accurate for arms reaching toward or away from the camera."
+    )
+
     st.markdown("---")
     st.markdown(
         """
@@ -90,7 +99,7 @@ with tab1:
         
         # Display video info
         try:
-            processor = VideoProcessor(PoseAnalyzer(angle_threshold=angle_threshold))
+            processor = VideoProcessor(PoseAnalyzer(angle_threshold=angle_threshold, use_3d=use_3d))
             video_info = processor.get_video_info(input_video_path)
             
             st.success(f"✅ Video loaded: **{video_name}**")
@@ -215,7 +224,7 @@ with tab2:
         # Insights
         st.markdown("---")
         st.subheader("💡 Insights")
-        
+
         if result.efficiency >= 70:
             st.success(
                 "Great climbing! You kept your arms extended for most of the climb, letting your "
@@ -233,6 +242,115 @@ with tab2:
                 "Focus on straight-arm hangs, pushing with your feet, and only bending when you're actively moving to the next hold."
             )
 
+        # 3D Pose Viewer
+        st.markdown("---")
+        st.subheader("🎯 3D Pose Viewer")
+
+        if result.pose_data_3d:
+            detected_frames = [
+                (i, entry) for i, entry in enumerate(result.pose_data_3d)
+                if entry[1] is not None
+            ]
+
+            if detected_frames:
+                mp_pose = mp.solutions.pose
+
+                slider_idx = st.slider(
+                    "Frame",
+                    min_value=0,
+                    max_value=len(detected_frames) - 1,
+                    value=len(detected_frames) // 2,
+                    help="Scrub through detected pose frames"
+                )
+
+                _, (frame_num, world_lms, is_good, com) = detected_frames[slider_idx]
+
+                # Remap axes: X=horizontal, Y=depth(world Z), Z=up(-world Y)
+                xs = world_lms[:, 0]
+                ys = world_lms[:, 2]
+                zs = -world_lms[:, 1]
+
+                bone_color = '#7FFF00' if is_good else '#FF3232'
+                fig = go.Figure()
+
+                # Skeleton connections (single trace with None separators)
+                bone_x, bone_y, bone_z = [], [], []
+                for start, end in mp_pose.POSE_CONNECTIONS:
+                    bone_x += [xs[start], xs[end], None]
+                    bone_y += [ys[start], ys[end], None]
+                    bone_z += [zs[start], zs[end], None]
+                fig.add_trace(go.Scatter3d(
+                    x=bone_x, y=bone_y, z=bone_z,
+                    mode='lines',
+                    line=dict(color=bone_color, width=4),
+                    name='Skeleton',
+                ))
+
+                # Joints
+                lm_names = [lm.name for lm in mp_pose.PoseLandmark]
+                fig.add_trace(go.Scatter3d(
+                    x=xs, y=ys, z=zs,
+                    mode='markers',
+                    marker=dict(size=4, color='#FFFF00'),
+                    name='Joints',
+                    hovertext=lm_names,
+                    hoverinfo='text',
+                ))
+
+                # CoM trajectory (all frames)
+                com_xs, com_ys, com_zs = [], [], []
+                for _, (_, _, _, c) in detected_frames:
+                    if c:
+                        com_xs.append(c[0])
+                        com_ys.append(c[2])
+                        com_zs.append(-c[1])
+                if com_xs:
+                    fig.add_trace(go.Scatter3d(
+                        x=com_xs, y=com_ys, z=com_zs,
+                        mode='lines+markers',
+                        line=dict(color='rgba(0,127,255,0.35)', width=2),
+                        marker=dict(size=2, color='rgba(0,127,255,0.35)'),
+                        name='CoM Path',
+                    ))
+
+                # CoM for selected frame
+                if com:
+                    fig.add_trace(go.Scatter3d(
+                        x=[com[0]], y=[com[2]], z=[-com[1]],
+                        mode='markers',
+                        marker=dict(size=9, color='#007FFF', symbol='diamond'),
+                        name='CoM',
+                    ))
+
+                fig.update_layout(
+                    scene=dict(
+                        xaxis_title='Horizontal (m)',
+                        yaxis_title='Depth (m)',
+                        zaxis_title='Vertical (m)',
+                        bgcolor='#111111',
+                        xaxis=dict(color='white'),
+                        yaxis=dict(color='white'),
+                        zaxis=dict(color='white'),
+                    ),
+                    paper_bgcolor='#111111',
+                    font=dict(color='white'),
+                    height=520,
+                    margin=dict(l=0, r=0, b=0, t=30),
+                    legend=dict(bgcolor='rgba(0,0,0,0)'),
+                )
+                st.plotly_chart(fig, use_container_width=True)
+
+                # Frame metadata
+                info_cols = st.columns(3)
+                info_cols[0].metric("Frame #", frame_num)
+                info_cols[1].metric("Classification", "Good ✅" if is_good else "Bad ❌")
+                if com:
+                    info_cols[2].metric("CoM Depth", f"{com[2]:.3f} m")
+            else:
+                st.info("No frames with detectable pose found.")
+        else:
+            st.info("3D pose data not available. Process a video to see the viewer.")
+
 with tab3:
     st.header("About CruxCam")
     
@@ -244,9 +362,10 @@ with tab3:
         optimal form (extended arms) versus inefficient form (compressed, bent arms).
         
         ### Technology
-        - **MediaPipe Pose Detection**: Real-time pose estimation
+        - **MediaPipe Pose Detection**: 2D/3D pose estimation (world landmarks)
         - **OpenCV**: Video processing and analysis
         - **Streamlit**: Interactive web interface
+        - **Plotly**: Interactive 3D pose viewer
         
         ### Metrics Explained
         - **Good Frames**: Frames where arm angles exceed the threshold (proper extension)
@@ -260,7 +379,6 @@ with tab3:
         
         ### Future Features
         - Instagram reel integration
-        - 3D pose estimation
         - Video length validation
         - Multiple climber tracking
         - Historical progress tracking
