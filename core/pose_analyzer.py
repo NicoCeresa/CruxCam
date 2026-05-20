@@ -13,7 +13,6 @@ class AnalysisResult:
     processed_video_path: Optional[str] = None
     # Each entry: (frame_num, world_lms_33x3, is_good, com_xyz)
     # world_lms_33x3 is None when MediaPipe world landmarks unavailable
-    # com_xyz is None when use_3d=False
     pose_data_3d: Optional[List] = None
 
 
@@ -25,9 +24,8 @@ class PoseAnalyzer:
     YELLOW = (0, 255, 255)
     BLACK = (0, 0, 0)
 
-    def __init__(self, angle_threshold: int = 90, use_3d: bool = True):
+    def __init__(self, angle_threshold: int = 90):
         self.angle_threshold = angle_threshold
-        self.use_3d = use_3d
         self.mp_pose = mp.solutions.pose
         self.mp_draw = mp.solutions.drawing_utils
         self._com_alpha = 0.2
@@ -41,32 +39,10 @@ class PoseAnalyzer:
 
     @property
     def com_3d(self) -> Optional[Tuple[float, float, float]]:
-        """World-space CoM (meters, hip-relative). Only valid when use_3d=True."""
-        if not self.use_3d or self._com_x is None:
+        """World-space CoM (meters, hip-relative)."""
+        if self._com_x is None:
             return None
-        return (float(self._com_x), float(self._com_y), float(self._com_z or 0.0))
-
-    def _get_arm_landmarks(
-        self,
-        landmarks,
-        h: int,
-        w: int,
-        side: str = 'right'
-    ) -> Tuple[Tuple[float, float], Tuple[float, float], Tuple[float, float]]:
-        prefix = 'RIGHT' if side.lower() == 'right' else 'LEFT'
-        shoulder = (
-            landmarks[getattr(self.mp_pose.PoseLandmark, f'{prefix}_SHOULDER').value].x * w,
-            landmarks[getattr(self.mp_pose.PoseLandmark, f'{prefix}_SHOULDER').value].y * h
-        )
-        elbow = (
-            landmarks[getattr(self.mp_pose.PoseLandmark, f'{prefix}_ELBOW').value].x * w,
-            landmarks[getattr(self.mp_pose.PoseLandmark, f'{prefix}_ELBOW').value].y * h
-        )
-        wrist = (
-            landmarks[getattr(self.mp_pose.PoseLandmark, f'{prefix}_WRIST').value].x * w,
-            landmarks[getattr(self.mp_pose.PoseLandmark, f'{prefix}_WRIST').value].y * h
-        )
-        return shoulder, elbow, wrist
+        return (float(self._com_x), float(self._com_y), float(self._com_z))
 
     def _get_arm_landmarks_3d(
         self,
@@ -161,12 +137,9 @@ class PoseAnalyzer:
         landmarks,
         h: int,
         w: int,
-        world_landmarks=None
+        world_landmarks
     ) -> None:
-        """
-        Weighted body segment CoM: head 8%, torso 50%, each arm 5%, each leg 16%.
-        In 3D mode, computed in world space (meters) then projected to pixel.
-        """
+        """Weighted body segment CoM computed in world space (meters) then projected to pixel."""
         LP = self.mp_pose.PoseLandmark
         segments = {
             'head':      (0.08, [LP.NOSE, LP.LEFT_EAR, LP.RIGHT_EAR]),
@@ -177,72 +150,43 @@ class PoseAnalyzer:
             'right_arm': (0.05, [LP.RIGHT_SHOULDER, LP.RIGHT_ELBOW, LP.RIGHT_WRIST]),
         }
 
-        if self.use_3d and world_landmarks is not None:
-            raw_x, raw_y, raw_z, total_weight = 0.0, 0.0, 0.0, 0.0
-            for weight, lm_ids in segments.values():
-                pts = [
-                    (world_landmarks[lm.value].x,
-                     world_landmarks[lm.value].y,
-                     world_landmarks[lm.value].z)
-                    for lm in lm_ids
-                    if landmarks[lm.value].visibility > 0.5
-                ]
-                if not pts:
-                    continue
-                raw_x += weight * sum(p[0] for p in pts) / len(pts)
-                raw_y += weight * sum(p[1] for p in pts) / len(pts)
-                raw_z += weight * sum(p[2] for p in pts) / len(pts)
-                total_weight += weight
+        raw_x, raw_y, raw_z, total_weight = 0.0, 0.0, 0.0, 0.0
+        for weight, lm_ids in segments.values():
+            pts = [
+                (world_landmarks[lm.value].x,
+                 world_landmarks[lm.value].y,
+                 world_landmarks[lm.value].z)
+                for lm in lm_ids
+                if landmarks[lm.value].visibility > 0.5
+            ]
+            if not pts:
+                continue
+            raw_x += weight * sum(p[0] for p in pts) / len(pts)
+            raw_y += weight * sum(p[1] for p in pts) / len(pts)
+            raw_z += weight * sum(p[2] for p in pts) / len(pts)
+            total_weight += weight
 
-            if total_weight == 0:
-                return
-            raw_x /= total_weight
-            raw_y /= total_weight
-            raw_z /= total_weight
+        if total_weight == 0:
+            return
+        raw_x /= total_weight
+        raw_y /= total_weight
+        raw_z /= total_weight
 
-            if self._com_x is None:
-                self._com_x, self._com_y, self._com_z = raw_x, raw_y, raw_z
-            else:
-                self._com_x = self._com_alpha * raw_x + (1 - self._com_alpha) * self._com_x
-                self._com_y = self._com_alpha * raw_y + (1 - self._com_alpha) * self._com_y
-                self._com_z = self._com_alpha * raw_z + (1 - self._com_alpha) * self._com_z
-
-            mid_x, mid_y = self._com_world_to_pixel(
-                (self._com_x, self._com_y), landmarks, world_landmarks, h, w
-            )
-            label = f"CoM  z={self._com_z:.2f}m"
+        if self._com_x is None:
+            self._com_x, self._com_y, self._com_z = raw_x, raw_y, raw_z
         else:
-            raw_x, raw_y, total_weight = 0.0, 0.0, 0.0
-            for weight, lm_ids in segments.values():
-                pts = [
-                    (landmarks[lm.value].x * w, landmarks[lm.value].y * h)
-                    for lm in lm_ids
-                    if landmarks[lm.value].visibility > 0.5
-                ]
-                if not pts:
-                    continue
-                raw_x += weight * sum(p[0] for p in pts) / len(pts)
-                raw_y += weight * sum(p[1] for p in pts) / len(pts)
-                total_weight += weight
+            self._com_x = self._com_alpha * raw_x + (1 - self._com_alpha) * self._com_x
+            self._com_y = self._com_alpha * raw_y + (1 - self._com_alpha) * self._com_y
+            self._com_z = self._com_alpha * raw_z + (1 - self._com_alpha) * self._com_z
 
-            if total_weight == 0:
-                return
-            raw_x /= total_weight
-            raw_y /= total_weight
-
-            if self._com_x is None:
-                self._com_x, self._com_y = raw_x, raw_y
-            else:
-                self._com_x = self._com_alpha * raw_x + (1 - self._com_alpha) * self._com_x
-                self._com_y = self._com_alpha * raw_y + (1 - self._com_alpha) * self._com_y
-
-            mid_x, mid_y = int(self._com_x), int(self._com_y)
-            label = "CoM"
+        mid_x, mid_y = self._com_world_to_pixel(
+            (self._com_x, self._com_y), landmarks, world_landmarks, h, w
+        )
 
         cv2.circle(img, (mid_x, mid_y), 7, self.BLUE, -1, cv2.LINE_AA)
         cv2.circle(img, (mid_x, mid_y), 9, (255, 255, 255), 1, cv2.LINE_AA)
         cv2.putText(
-            img, label, (mid_x + 12, mid_y + 5),
+            img, f"CoM  z={self._com_z:.2f}m", (mid_x + 12, mid_y + 5),
             cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255, 255, 255), 1, cv2.LINE_AA
         )
 
@@ -256,50 +200,33 @@ class PoseAnalyzer:
 
         Returns:
             (processed_image, is_good_frame, (r_angle, l_angle), world_lms_33x3)
-            world_lms_33x3 is a (33, 3) float32 array, or None if unavailable.
+            angles and world_lms_33x3 are None when MediaPipe landmarks are unavailable.
         """
         img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
         results = pose.process(img_rgb)
 
-        if not results.pose_landmarks:
+        if not results.pose_landmarks or not results.pose_world_landmarks:
             return img, True, None, None
 
         h, w = img.shape[:2]
         landmarks = results.pose_landmarks.landmark
-        world_lms = (
-            results.pose_world_landmarks.landmark
-            if results.pose_world_landmarks else None
-        )
+        world_lms = results.pose_world_landmarks.landmark
 
-        if self.use_3d and world_lms is not None:
-            r_s, r_e, r_w = self._get_arm_landmarks_3d(world_lms, 'right')
-            l_s, l_e, l_w = self._get_arm_landmarks_3d(world_lms, 'left')
-            r_bicep_angle = self._calculate_angle(
-                np.array(r_s) - np.array(r_e),
-                np.array(r_w) - np.array(r_e)
-            )
-            l_bicep_angle = self._calculate_angle(
-                np.array(l_s) - np.array(l_e),
-                np.array(l_w) - np.array(l_e)
-            )
-        else:
-            r_shoulder, r_elbow, r_wrist = self._get_arm_landmarks(landmarks, h, w, 'right')
-            l_shoulder, l_elbow, l_wrist = self._get_arm_landmarks(landmarks, h, w, 'left')
-            r_bicep_angle = self._calculate_angle(
-                np.array([r_shoulder[0] - r_elbow[0], r_shoulder[1] - r_elbow[1]]),
-                np.array([r_wrist[0] - r_elbow[0], r_wrist[1] - r_elbow[1]])
-            )
-            l_bicep_angle = self._calculate_angle(
-                np.array([l_shoulder[0] - l_elbow[0], l_shoulder[1] - l_elbow[1]]),
-                np.array([l_wrist[0] - l_elbow[0], l_wrist[1] - l_elbow[1]])
-            )
+        r_s, r_e, r_w = self._get_arm_landmarks_3d(world_lms, 'right')
+        l_s, l_e, l_w = self._get_arm_landmarks_3d(world_lms, 'left')
+        r_bicep_angle = self._calculate_angle(
+            np.array(r_s) - np.array(r_e),
+            np.array(r_w) - np.array(r_e)
+        )
+        l_bicep_angle = self._calculate_angle(
+            np.array(l_s) - np.array(l_e),
+            np.array(l_w) - np.array(l_e)
+        )
 
         is_good_frame = self._draw_landmarks_and_classify(img, results, r_bicep_angle, l_bicep_angle)
         self._draw_center_of_mass(img, landmarks, h, w, world_lms)
 
-        world_lms_array = None
-        if world_lms is not None:
-            world_lms_array = np.array([[lm.x, lm.y, lm.z] for lm in world_lms], dtype=np.float32)
+        world_lms_array = np.array([[lm.x, lm.y, lm.z] for lm in world_lms], dtype=np.float32)
 
         return img, is_good_frame, (r_bicep_angle, l_bicep_angle), world_lms_array
 

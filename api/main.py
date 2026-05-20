@@ -99,7 +99,6 @@ def get_preview_frame(preview_id: str, n: int = Query(default=0, ge=0)):
 async def upload_video(
     video: UploadFile = File(...),
     angle_threshold: int = Query(default=90, ge=30, le=120),
-    use_3d: bool = Query(default=True),
     start_frame: int = Query(default=0, ge=0),
     end_frame: Optional[int] = Query(default=None, ge=1),
     preview_id: Optional[str] = Query(default=None),
@@ -127,7 +126,7 @@ async def upload_video(
             p.unlink(missing_ok=True)
 
     process_video_task.apply_async(
-        args=[str(input_path), str(output_path), angle_threshold, use_3d,
+        args=[str(input_path), str(output_path), angle_threshold,
               start_frame, end_frame],
         task_id=job_id,
     )

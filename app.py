@@ -368,7 +368,6 @@ with tab1:
                     files={"video": (video_name, video_bytes_for_upload, "video/mp4")},
                     params={
                         "angle_threshold": angle_threshold,
-                        "use_3d": True,
                         "start_frame": st.session_state.trim_start,
                         "end_frame": st.session_state.trim_end,
                         "preview_id": st.session_state.preview_id,

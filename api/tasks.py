@@ -56,7 +56,6 @@ def process_video_task(
     input_path: str,
     output_path: str,
     angle_threshold: int = 90,
-    use_3d: bool = True,
     start_frame: int = 0,
     end_frame: Optional[int] = None,
 ) -> dict:
@@ -73,7 +72,7 @@ def process_video_task(
 
     try:
         processor = VideoProcessor(
-            PoseAnalyzer(angle_threshold=angle_threshold, use_3d=use_3d)
+            PoseAnalyzer(angle_threshold=angle_threshold)
         )
         result = processor.process_video(
             input_path, output_path,
