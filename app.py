@@ -4,11 +4,22 @@ import streamlit.components.v1 as components
 from pathlib import Path
 import tempfile
 import time
+import cv2
 import numpy as np
 import plotly.graph_objects as go
 import mediapipe as mp
 from core.pose_analyzer import PoseAnalyzer
 from core.video_processor import VideoProcessor
+
+
+@st.cache_data
+def _get_video_frame(video_path: str, frame_num: int):
+    """Seek to a specific frame in the processed video and return it as RGB."""
+    cap = cv2.VideoCapture(video_path)
+    cap.set(cv2.CAP_PROP_POS_FRAMES, frame_num)
+    ok, frame = cap.read()
+    cap.release()
+    return cv2.cvtColor(frame, cv2.COLOR_BGR2RGB) if ok else None
 
 # Page configuration
 st.set_page_config(
@@ -202,25 +213,6 @@ with tab2:
                 help="Number of frames with compressed arm positions"
             )
         
-        # Display processed video
-        st.markdown("---")
-        st.subheader("📹 Processed Video")
-        
-        if Path(result.processed_video_path).exists():
-            with open(result.processed_video_path, 'rb') as video_file:
-                video_bytes = video_file.read()
-                st.video(video_bytes)
-            
-            # Download button
-            st.download_button(
-                label="⬇️ Download Processed Video",
-                data=video_bytes,
-                file_name=f"cruxcam_analysis_{time.strftime('%Y%m%d_%H%M%S')}.mp4",
-                mime="video/mp4"
-            )
-        else:
-            st.warning("Processed video file not found.")
-        
         # Insights
         st.markdown("---")
         st.subheader("💡 Insights")
@@ -242,28 +234,46 @@ with tab2:
                 "Focus on straight-arm hangs, pushing with your feet, and only bending when you're actively moving to the next hold."
             )
 
-        # 3D Pose Viewer
+        # Side-by-side video frame + 3D pose viewer
         st.markdown("---")
-        st.subheader("🎯 3D Pose Viewer")
+        st.subheader("📹 Frame Review")
 
+        video_exists = Path(result.processed_video_path).exists()
+        detected_frames = []
         if result.pose_data_3d:
             detected_frames = [
-                (i, entry) for i, entry in enumerate(result.pose_data_3d)
+                entry for entry in result.pose_data_3d
                 if entry[1] is not None
             ]
 
-            if detected_frames:
-                mp_pose = mp.solutions.pose
+        if video_exists and detected_frames:
+            mp_pose = mp.solutions.pose
 
-                slider_idx = st.slider(
-                    "Frame",
-                    min_value=0,
-                    max_value=len(detected_frames) - 1,
-                    value=len(detected_frames) // 2,
-                    help="Scrub through detected pose frames"
-                )
+            # Single slider drives both panels
+            slider_idx = st.slider(
+                "Frame",
+                min_value=0,
+                max_value=len(detected_frames) - 1,
+                value=len(detected_frames) // 2,
+                help="Scrub through detected pose frames — updates both the video frame and the 3D skeleton"
+            )
 
-                _, (frame_num, world_lms, is_good, com) = detected_frames[slider_idx]
+            frame_num, world_lms, is_good, com = detected_frames[slider_idx]
+
+            vid_col, pose_col = st.columns(2)
+
+            # --- Left: annotated video frame ---
+            with vid_col:
+                st.caption("Annotated Frame")
+                frame_img = _get_video_frame(result.processed_video_path, frame_num)
+                if frame_img is not None:
+                    st.image(frame_img, use_container_width=True)
+                else:
+                    st.warning("Could not read frame from video.")
+
+            # --- Right: 3D skeleton ---
+            with pose_col:
+                st.caption("3D Pose")
 
                 # Remap axes: X=horizontal, Y=depth(world Z), Z=up(-world Y)
                 xs = world_lms[:, 0]
@@ -273,7 +283,6 @@ with tab2:
                 bone_color = '#7FFF00' if is_good else '#FF3232'
                 fig = go.Figure()
 
-                # Skeleton connections (single trace with None separators)
                 bone_x, bone_y, bone_z = [], [], []
                 for start, end in mp_pose.POSE_CONNECTIONS:
                     bone_x += [xs[start], xs[end], None]
@@ -286,7 +295,6 @@ with tab2:
                     name='Skeleton',
                 ))
 
-                # Joints
                 lm_names = [lm.name for lm in mp_pose.PoseLandmark]
                 fig.add_trace(go.Scatter3d(
                     x=xs, y=ys, z=zs,
@@ -297,9 +305,9 @@ with tab2:
                     hoverinfo='text',
                 ))
 
-                # CoM trajectory (all frames)
+                # CoM trajectory
                 com_xs, com_ys, com_zs = [], [], []
-                for _, (_, _, _, c) in detected_frames:
+                for (_, _, _, c) in detected_frames:
                     if c:
                         com_xs.append(c[0])
                         com_ys.append(c[2])
@@ -313,7 +321,6 @@ with tab2:
                         name='CoM Path',
                     ))
 
-                # CoM for selected frame
                 if com:
                     fig.add_trace(go.Scatter3d(
                         x=[com[0]], y=[com[2]], z=[-com[1]],
@@ -334,22 +341,43 @@ with tab2:
                     ),
                     paper_bgcolor='#111111',
                     font=dict(color='white'),
-                    height=520,
-                    margin=dict(l=0, r=0, b=0, t=30),
+                    height=500,
+                    margin=dict(l=0, r=0, b=0, t=10),
                     legend=dict(bgcolor='rgba(0,0,0,0)'),
                 )
                 st.plotly_chart(fig, use_container_width=True)
 
-                # Frame metadata
-                info_cols = st.columns(3)
-                info_cols[0].metric("Frame #", frame_num)
-                info_cols[1].metric("Classification", "Good ✅" if is_good else "Bad ❌")
-                if com:
-                    info_cols[2].metric("CoM Depth", f"{com[2]:.3f} m")
-            else:
-                st.info("No frames with detectable pose found.")
+            # Frame metadata
+            meta_cols = st.columns(4)
+            meta_cols[0].metric("Frame #", frame_num)
+            meta_cols[1].metric("Classification", "Good ✅" if is_good else "Bad ❌")
+            if com:
+                meta_cols[2].metric("CoM Depth", f"{com[2]:.3f} m")
+
+            # Download
+            meta_cols[3].markdown(" ")
+            with open(result.processed_video_path, 'rb') as vf:
+                meta_cols[3].download_button(
+                    label="⬇️ Download Video",
+                    data=vf.read(),
+                    file_name=f"cruxcam_analysis_{time.strftime('%Y%m%d_%H%M%S')}.mp4",
+                    mime="video/mp4",
+                    use_container_width=True,
+                )
+
+        elif video_exists:
+            # No pose data — fall back to plain video player
+            with open(result.processed_video_path, 'rb') as vf:
+                video_bytes = vf.read()
+            st.video(video_bytes)
+            st.download_button(
+                label="⬇️ Download Processed Video",
+                data=video_bytes,
+                file_name=f"cruxcam_analysis_{time.strftime('%Y%m%d_%H%M%S')}.mp4",
+                mime="video/mp4"
+            )
         else:
-            st.info("3D pose data not available. Process a video to see the viewer.")
+            st.warning("Processed video file not found.")
 
 with tab3:
     st.header("About CruxCam")
