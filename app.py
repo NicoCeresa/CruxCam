@@ -26,42 +26,76 @@ def _get_video_frame(video_path: str, frame_num: int):
     return cv2.cvtColor(frame, cv2.COLOR_BGR2RGB) if ok else None
 
 
-@st.fragment
-def _frame_review(detected_frames: list, video_path: str) -> None:
+@st.cache_data
+def _build_plotly_frames(video_path: str, _detected_frames: list, fps: int):
     """
-    Renders the side-by-side video frame + 3D skeleton viewer.
-    Decorated as a fragment so the play loop only reruns this section,
-    not the full page (header, sidebar, other tabs stay frozen).
+    Pre-build all Plotly animation frames. Cached per video path so scrubbing
+    the Streamlit slider doesn't rebuild the full frame list on every rerun.
+    Leading underscore on _detected_frames tells st.cache_data not to hash it;
+    video_path (UUID-based) is the effective cache key.
     """
     mp_pose = mp.solutions.pose
+    lm_names = [lm.name for lm in mp_pose.PoseLandmark]
+    frame_duration_ms = 1000 / max(fps, 1)
+
+    com_xs, com_ys, com_zs = [], [], []
+    for (_, _, _, c) in _detected_frames:
+        if c:
+            com_xs.append(c[0])
+            com_ys.append(c[2])
+            com_zs.append(-c[1])
+
+    animation_frames = []
+    for i, (_, wlms, good, c) in enumerate(_detected_frames):
+        xs, ys, zs = wlms[:, 0], wlms[:, 2], -wlms[:, 1]
+        bone_color = '#4ade80' if good else '#f87171'
+        bx, by, bz = [], [], []
+        for s, e in mp_pose.POSE_CONNECTIONS:
+            bx += [xs[s], xs[e], None]
+            by += [ys[s], ys[e], None]
+            bz += [zs[s], zs[e], None]
+        animation_frames.append(go.Frame(
+            data=[
+                go.Scatter3d(x=bx, y=by, z=bz, mode='lines', line=dict(color=bone_color, width=3)),
+                go.Scatter3d(x=xs, y=ys, z=zs, mode='markers',
+                             marker=dict(size=3, color='#e5e7eb'),
+                             hovertext=lm_names, hoverinfo='text'),
+                go.Scatter3d(
+                    x=[c[0]] if c else [], y=[c[2]] if c else [], z=[-c[1]] if c else [],
+                    mode='markers', marker=dict(size=7, color='#60a5fa', symbol='diamond'),
+                ),
+            ],
+            traces=[0, 1, 3],
+            name=str(i),
+        ))
+
+    return animation_frames, com_xs, com_ys, com_zs, frame_duration_ms
+
+
+@st.fragment
+def _frame_review(detected_frames: list, video_path: str, fps: int) -> None:
+    """
+    Side-by-side video frame + animated 3D skeleton viewer.
+    Plotly handles playback at the correct FPS client-side.
+    The Streamlit slider scrubs the video frame and sets the Plotly starting position.
+    """
     max_idx = len(detected_frames) - 1
 
     if st.session_state.frame_idx > max_idx:
         st.session_state.frame_idx = 0
 
-    # Single toggle button + slider in one row
-    ctrl_col, slider_col = st.columns([1, 11])
-    with ctrl_col:
-        btn_label = "Pause" if st.session_state.playing else "Play"
-        if st.button(btn_label, use_container_width=True):
-            st.session_state.playing = not st.session_state.playing
-
     def _on_scrub():
         st.session_state.frame_idx = st.session_state.frame_slider
-        st.session_state.playing = False
 
-    # Sync slider position to frame_idx before rendering (must happen before instantiation)
     st.session_state["frame_slider"] = st.session_state.frame_idx
-
-    with slider_col:
-        st.slider(
-            "Frame",
-            min_value=0,
-            max_value=max_idx,
-            key="frame_slider",
-            help="Scrub through detected pose frames",
-            on_change=_on_scrub,
-        )
+    st.slider(
+        "Frame",
+        min_value=0,
+        max_value=max_idx,
+        key="frame_slider",
+        help="Scrub through detected pose frames",
+        on_change=_on_scrub,
+    )
 
     frame_num, world_lms, is_good, com = detected_frames[st.session_state.frame_idx]
 
@@ -78,56 +112,93 @@ def _frame_review(detected_frames: list, video_path: str) -> None:
     with pose_col:
         st.caption("3D skeleton")
 
-        xs = world_lms[:, 0]
-        ys = world_lms[:, 2]
-        zs = -world_lms[:, 1]
+        animation_frames, com_xs, com_ys, com_zs, frame_duration_ms = (
+            _build_plotly_frames(video_path, detected_frames, fps)
+        )
 
-        bone_color = '#4ade80' if is_good else '#f87171'
-        fig = go.Figure()
+        # Initial display state (driven by the Streamlit scrub slider)
+        idx = st.session_state.frame_idx
+        init_wlms = detected_frames[idx][1]
+        init_good = detected_frames[idx][2]
+        init_com  = detected_frames[idx][3]
+        xs, ys, zs = init_wlms[:, 0], init_wlms[:, 2], -init_wlms[:, 1]
+        bone_color = '#4ade80' if init_good else '#f87171'
+        lm_names = [lm.name for lm in mp.solutions.pose.PoseLandmark]
 
-        bone_x, bone_y, bone_z = [], [], []
-        for start, end in mp_pose.POSE_CONNECTIONS:
-            bone_x += [xs[start], xs[end], None]
-            bone_y += [ys[start], ys[end], None]
-            bone_z += [zs[start], zs[end], None]
-        fig.add_trace(go.Scatter3d(
-            x=bone_x, y=bone_y, z=bone_z,
-            mode='lines',
-            line=dict(color=bone_color, width=3),
-            name='Skeleton',
-        ))
+        bx, by, bz = [], [], []
+        for s, e in mp.solutions.pose.POSE_CONNECTIONS:
+            bx += [xs[s], xs[e], None]
+            by += [ys[s], ys[e], None]
+            bz += [zs[s], zs[e], None]
 
-        lm_names = [lm.name for lm in mp_pose.PoseLandmark]
-        fig.add_trace(go.Scatter3d(
-            x=xs, y=ys, z=zs,
-            mode='markers',
-            marker=dict(size=3, color='#e5e7eb'),
-            name='Joints',
-            hovertext=lm_names,
-            hoverinfo='text',
-        ))
-
-        com_xs, com_ys, com_zs = [], [], []
-        for (_, _, _, c) in detected_frames:
-            if c:
-                com_xs.append(c[0])
-                com_ys.append(c[2])
-                com_zs.append(-c[1])
-        if com_xs:
-            fig.add_trace(go.Scatter3d(
-                x=com_xs, y=com_ys, z=com_zs,
-                mode='lines',
-                line=dict(color='rgba(96,165,250,0.4)', width=2),
-                name='CoM path',
-            ))
-
-        if com:
-            fig.add_trace(go.Scatter3d(
-                x=[com[0]], y=[com[2]], z=[-com[1]],
-                mode='markers',
-                marker=dict(size=7, color='#60a5fa', symbol='diamond'),
-                name='CoM',
-            ))
+        fig = go.Figure(
+            data=[
+                go.Scatter3d(x=bx, y=by, z=bz, mode='lines',
+                             line=dict(color=bone_color, width=3), name='Skeleton'),
+                go.Scatter3d(x=xs, y=ys, z=zs, mode='markers',
+                             marker=dict(size=3, color='#e5e7eb'), name='Joints',
+                             hovertext=lm_names, hoverinfo='text'),
+                go.Scatter3d(x=com_xs, y=com_ys, z=com_zs, mode='lines',
+                             line=dict(color='rgba(96,165,250,0.4)', width=2), name='CoM path'),
+                go.Scatter3d(
+                    x=[init_com[0]] if init_com else [],
+                    y=[init_com[2]] if init_com else [],
+                    z=[-init_com[1]] if init_com else [],
+                    mode='markers', marker=dict(size=7, color='#60a5fa', symbol='diamond'),
+                    name='CoM',
+                ),
+            ],
+            frames=animation_frames,
+            layout=go.Layout(
+                updatemenus=[{
+                    'type': 'buttons',
+                    'showactive': False,
+                    'y': 0, 'x': 0.5, 'xanchor': 'center', 'yanchor': 'top',
+                    'pad': {'t': 45},
+                    'buttons': [
+                        {
+                            'label': 'Play',
+                            'method': 'animate',
+                            'args': [None, {
+                                'frame': {'duration': frame_duration_ms, 'redraw': True},
+                                'fromcurrent': True,
+                                'transition': {'duration': 0},
+                            }],
+                        },
+                        {
+                            'label': 'Pause',
+                            'method': 'animate',
+                            'args': [[None], {
+                                'frame': {'duration': 0, 'redraw': False},
+                                'mode': 'immediate',
+                                'transition': {'duration': 0},
+                            }],
+                        },
+                    ],
+                }],
+                sliders=[{
+                    'active': idx,
+                    'currentvalue': {'prefix': 'Frame: ', 'font': {'color': '#6b7280'}},
+                    'pad': {'t': 50},
+                    'bgcolor': '#1f1f1f',
+                    'bordercolor': '#374151',
+                    'tickcolor': '#374151',
+                    'font': {'color': '#6b7280'},
+                    'steps': [
+                        {
+                            'args': [[str(i)], {
+                                'frame': {'duration': frame_duration_ms, 'redraw': True},
+                                'mode': 'immediate',
+                                'transition': {'duration': 0},
+                            }],
+                            'label': '',
+                            'method': 'animate',
+                        }
+                        for i in range(len(animation_frames))
+                    ],
+                }],
+            ),
+        )
 
         fig.update_layout(
             scene=dict(
@@ -141,8 +212,8 @@ def _frame_review(detected_frames: list, video_path: str) -> None:
             ),
             paper_bgcolor='#0e0e0e',
             font=dict(color='#9ca3af', size=11),
-            height=500,
-            margin=dict(l=0, r=0, b=0, t=0),
+            height=560,
+            margin=dict(l=0, r=0, b=110, t=0),
             legend=dict(bgcolor='rgba(0,0,0,0)', font=dict(color='#6b7280', size=10)),
         )
         st.plotly_chart(fig, use_container_width=True)
@@ -161,15 +232,6 @@ def _frame_review(detected_frames: list, video_path: str) -> None:
             mime="video/mp4",
             use_container_width=True,
         )
-
-    # Auto-advance — only reruns this fragment, not the full page
-    if st.session_state.playing:
-        if st.session_state.frame_idx < max_idx:
-            st.session_state.frame_idx += 1
-        else:
-            st.session_state.playing = False
-        time.sleep(0.06)  # ~16 fps
-        st.rerun(scope="fragment")
 
 
 st.set_page_config(
@@ -219,8 +281,8 @@ if 'analysis_result' not in st.session_state:
     st.session_state.analysis_result = None
 if 'frame_idx' not in st.session_state:
     st.session_state.frame_idx = 0
-if 'playing' not in st.session_state:
-    st.session_state.playing = False
+if 'video_fps' not in st.session_state:
+    st.session_state.video_fps = 30
 
 # Header
 st.title("CruxCam")
@@ -296,6 +358,7 @@ with tab1:
             )
             info_resp.raise_for_status()
             video_info = info_resp.json()
+            st.session_state.video_fps = video_info['fps']
 
             st.success(f"Loaded **{video_name}**")
             info_cols = st.columns(4)
@@ -358,7 +421,6 @@ with tab1:
                 st.session_state.processed_video_path = result.processed_video_path
                 st.session_state.analysis_result = result
                 st.session_state.frame_idx = 0
-                st.session_state.playing = False
 
                 progress_bar.empty()
                 progress_text.empty()
@@ -437,7 +499,7 @@ with tab2:
             detected_frames = [e for e in result.pose_data_3d if e[1] is not None]
 
         if video_exists and detected_frames:
-            _frame_review(detected_frames, result.processed_video_path)
+            _frame_review(detected_frames, result.processed_video_path, st.session_state.video_fps)
 
         elif video_exists:
             with open(result.processed_video_path, 'rb') as vf:
