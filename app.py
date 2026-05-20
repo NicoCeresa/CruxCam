@@ -46,18 +46,22 @@ def _frame_review(detected_frames: list, video_path: str) -> None:
         if st.button(btn_label, use_container_width=True):
             st.session_state.playing = not st.session_state.playing
 
+    def _on_scrub():
+        st.session_state.frame_idx = st.session_state.frame_slider
+        st.session_state.playing = False
+
+    # Sync slider position to frame_idx before rendering (must happen before instantiation)
+    st.session_state["frame_slider"] = st.session_state.frame_idx
+
     with slider_col:
-        slider_idx = st.slider(
+        st.slider(
             "Frame",
             min_value=0,
             max_value=max_idx,
-            value=st.session_state.frame_idx,
             key="frame_slider",
             help="Scrub through detected pose frames",
+            on_change=_on_scrub,
         )
-        if slider_idx != st.session_state.frame_idx:
-            st.session_state.frame_idx = slider_idx
-            st.session_state.playing = False
 
     frame_num, world_lms, is_good, com = detected_frames[st.session_state.frame_idx]
 

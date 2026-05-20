@@ -1,9 +1,8 @@
 from pathlib import Path
 import numpy as np
 from .celery_app import celery_app
-from core.pose_analyzer import AnalysisResult
+from core.pose_analyzer import AnalysisResult, PoseAnalyzer
 from core.video_processor import VideoProcessor
-from core.pose_analyzer import PoseAnalyzer
 
 
 def serialize_result(result: AnalysisResult) -> dict:

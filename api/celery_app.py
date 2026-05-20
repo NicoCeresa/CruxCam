@@ -7,6 +7,7 @@ celery_app = Celery(
     "cruxcam",
     broker=REDIS_URL,
     backend=REDIS_URL,
+    include=["api.tasks"],
 )
 
 celery_app.conf.update(
