@@ -33,10 +33,6 @@ export default {
         display: ['"Barlow Condensed"', 'sans-serif'],
         body:    ['Inter', 'sans-serif'],
       },
-      backgroundImage: {
-        // Subtle topographic contour pattern using SVG
-        'topo': "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cpath d='M0 80 Q50 60 100 80 Q150 100 200 80' stroke='%231B2D4F' stroke-width='1' fill='none'/%3E%3Cpath d='M0 120 Q50 100 100 120 Q150 140 200 120' stroke='%231B2D4F' stroke-width='1' fill='none'/%3E%3Cpath d='M0 160 Q50 140 100 160 Q150 180 200 160' stroke='%231B2D4F' stroke-width='1' fill='none'/%3E%3Cpath d='M0 40 Q50 20 100 40 Q150 60 200 40' stroke='%231B2D4F' stroke-width='1' fill='none'/%3E%3C/svg%3E\")",
-      },
     },
   },
   plugins: [],

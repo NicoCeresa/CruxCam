@@ -5,7 +5,25 @@
 @layer base {
   body {
     @apply bg-navy text-cream font-body antialiased;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cpath d='M0 80 Q50 60 100 80 Q150 100 200 80' stroke='%231B2D4F' stroke-width='1' fill='none'/%3E%3Cpath d='M0 120 Q50 100 100 120 Q150 140 200 120' stroke='%231B2D4F' stroke-width='1' fill='none'/%3E%3Cpath d='M0 160 Q50 140 100 160 Q150 180 200 160' stroke='%231B2D4F' stroke-width='1' fill='none'/%3E%3Cpath d='M0 40 Q50 20 100 40 Q150 60 200 40' stroke='%231B2D4F' stroke-width='1' fill='none'/%3E%3C/svg%3E");
+    position: relative;
+  }
+
+  /* Rocky texture overlay — fractal noise at low opacity over the navy base */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='400' height='400'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.4 0.75' numOctaves='6' seed='5' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='400' height='400' filter='url(%23n)'/%3E%3C/svg%3E");
+    background-repeat: repeat;
+    background-size: 400px 400px;
+    opacity: 0.07;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  #root {
+    position: relative;
+    z-index: 1;
   }
 }
 
