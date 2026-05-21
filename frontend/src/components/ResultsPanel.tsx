@@ -154,7 +154,7 @@ export default function ResultsPanel({ result, videoInfo, jobId, onReset }: Prop
         <div className="card overflow-hidden">
           <video
             ref={videoRef}
-            src={videoUrl}
+            src={`${videoUrl}#t=0.001`}
             className="w-full h-full object-contain bg-black"
             preload="auto"
             playsInline
