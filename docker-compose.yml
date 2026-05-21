@@ -1,0 +1,35 @@
+services:
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+
+  api:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      TMPDIR: /data
+      CRUXCAM_ALLOWED_ORIGINS: ${CRUXCAM_ALLOWED_ORIGINS:-http://localhost:5173}
+      CRUXCAM_MAX_UPLOAD_MB: ${CRUXCAM_MAX_UPLOAD_MB:-500}
+      CRUXCAM_RATE_LIMIT: ${CRUXCAM_RATE_LIMIT:-10}
+    volumes:
+      - uploads:/data
+    depends_on:
+      - redis
+
+  worker:
+    build: .
+    restart: unless-stopped
+    command: celery -A api.celery_app worker --loglevel=info --pool=solo
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      TMPDIR: /data
+    volumes:
+      - uploads:/data
+    depends_on:
+      - redis
+
+volumes:
+  uploads:

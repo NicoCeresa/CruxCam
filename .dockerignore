@@ -1,0 +1,11 @@
+.git/
+crux_cam/
+frontend/node_modules/
+frontend/dist/
+notebooks/
+papers/
+app.py
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+.env*
