@@ -3,11 +3,12 @@ import time
 import uuid
 import shutil
 import tempfile
+from collections import defaultdict
 from pathlib import Path
 from typing import Optional
 import cv2
-import numpy as np
-from fastapi import FastAPI, File, HTTPException, Query, UploadFile
+from fastapi import FastAPI, File, HTTPException, Query, Request, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
 from celery.result import AsyncResult
 from .celery_app import celery_app
@@ -15,29 +16,159 @@ from .tasks import process_video_task
 
 app = FastAPI(title="CruxCam API")
 
-TMP      = Path(tempfile.gettempdir())
-FILE_TTL = int(os.environ.get("CRUXCAM_FILE_TTL", 3600))
+_ALLOWED_ORIGINS = os.environ.get("CRUXCAM_ALLOWED_ORIGINS", "http://localhost:5173").split(",")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_ALLOWED_ORIGINS,
+    allow_methods=["GET", "POST"],
+    allow_headers=["*"],
+)
 
-# In-memory map of preview_id → temp file path (only needed until processing starts)
+# ── Config ─────────────────────────────────────────────────────────────────────
+_PROJECT_ROOT   = Path(__file__).parent.parent
+TMP             = Path(tempfile.gettempdir())
+FILE_TTL        = int(os.environ.get("CRUXCAM_FILE_TTL", 3600))
+MAX_UPLOAD_MB   = int(os.environ.get("CRUXCAM_MAX_UPLOAD_MB", 500))
+MAX_UPLOAD_BYTES = MAX_UPLOAD_MB * 1024 * 1024
+RATE_LIMIT      = int(os.environ.get("CRUXCAM_RATE_LIMIT", 10))  # uploads per IP per minute
+SAMPLE_PATH     = _PROJECT_ROOT / os.environ.get("CRUXCAM_SAMPLE_PATH", "inputs/tomoa_outside.mp4")
+
+ALLOWED_EXTENSIONS = {".mp4", ".mov", ".avi", ".mkv", ".webm"}
+
+# ── State ──────────────────────────────────────────────────────────────────────
+# preview_id → temp file path (only needed until processing starts)
 _preview_paths: dict[str, Path] = {}
+# ip → list of upload timestamps for sliding-window rate limiting
+_upload_times: dict[str, list[float]] = defaultdict(list)
 
+
+# ── Helpers ────────────────────────────────────────────────────────────────────
 
 def _cleanup_old_files() -> None:
-    """Delete CruxCam temp files older than FILE_TTL seconds."""
     cutoff = time.time() - FILE_TTL
     for pattern in ("cruxcam_upload_*", "cruxcam_output_*", "cruxcam_preview_*"):
         for path in TMP.glob(pattern):
             if path.is_file() and path.stat().st_mtime < cutoff:
                 path.unlink(missing_ok=True)
-    # Drop stale entries from the preview tracking dict
     for pid in [k for k, v in _preview_paths.items() if not v.exists()]:
         _preview_paths.pop(pid, None)
+    # Purge stale rate-limit windows to keep the dict from growing unboundedly
+    now = time.time()
+    for ip in list(_upload_times):
+        _upload_times[ip] = [t for t in _upload_times[ip] if now - t < 60]
+        if not _upload_times[ip]:
+            del _upload_times[ip]
 
+
+def _check_rate_limit(request: Request) -> None:
+    ip = request.client.host if request.client else "unknown"
+    now = time.time()
+    _upload_times[ip] = [t for t in _upload_times[ip] if now - t < 60]
+    if len(_upload_times[ip]) >= RATE_LIMIT:
+        raise HTTPException(status_code=429, detail="Too many requests — try again in a minute")
+    _upload_times[ip].append(now)
+
+
+def _check_upload_size(request: Request) -> None:
+    cl = request.headers.get("content-length")
+    if cl and int(cl) > MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail=f"File too large (max {MAX_UPLOAD_MB} MB)")
+
+
+def _validate_video(filename: str, content_type: Optional[str]) -> None:
+    ext = Path(filename).suffix.lower() if filename else ""
+    if ext not in ALLOWED_EXTENSIONS:
+        raise HTTPException(status_code=415, detail=f"Unsupported file type '{ext}'. Allowed: {', '.join(ALLOWED_EXTENSIONS)}")
+    if content_type and not content_type.startswith("video/"):
+        raise HTTPException(status_code=415, detail=f"Expected a video file, got '{content_type}'")
+
+
+def _read_video_info(path: Path) -> dict:
+    cap = cv2.VideoCapture(str(path))
+    if not cap.isOpened():
+        raise HTTPException(status_code=400, detail="Could not read video file")
+    fps          = int(cap.get(cv2.CAP_PROP_FPS))
+    width        = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    height       = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    cap.release()
+    return {
+        "fps": fps,
+        "width": width,
+        "height": height,
+        "total_frames": total_frames,
+        "duration": total_frames / max(fps, 1),
+    }
+
+
+# ── Sample endpoints ───────────────────────────────────────────────────────────
+
+@app.get("/sample/info")
+def sample_info():
+    if not SAMPLE_PATH.exists():
+        raise HTTPException(status_code=404, detail="Sample video not found")
+
+    preview_id = str(uuid.uuid4())
+    fd, tmp = tempfile.mkstemp(suffix=SAMPLE_PATH.suffix, prefix="cruxcam_preview_", dir=TMP)
+    os.close(fd)
+    preview_path = Path(tmp)
+    shutil.copy2(SAMPLE_PATH, preview_path)
+    _preview_paths[preview_id] = preview_path
+
+    try:
+        info = _read_video_info(preview_path)
+    except HTTPException:
+        preview_path.unlink(missing_ok=True)
+        _preview_paths.pop(preview_id, None)
+        raise
+
+    return {**info, "preview_id": preview_id}
+
+
+@app.post("/sample/upload", status_code=202)
+def sample_upload(
+    request: Request,
+    angle_threshold: int = Query(default=90, ge=30, le=120),
+    start_frame: int = Query(default=0, ge=0),
+    end_frame: Optional[int] = Query(default=None, ge=1),
+    preview_id: Optional[str] = Query(default=None),
+):
+    if not SAMPLE_PATH.exists():
+        raise HTTPException(status_code=404, detail="Sample video not found")
+
+    _check_rate_limit(request)
+    _cleanup_old_files()
+    job_id = str(uuid.uuid4())
+
+    fd, input_tmp = tempfile.mkstemp(suffix=SAMPLE_PATH.suffix, prefix="cruxcam_upload_", dir=TMP)
+    os.close(fd)
+    input_path = Path(input_tmp)
+    shutil.copy2(SAMPLE_PATH, input_path)
+
+    fd, output_tmp = tempfile.mkstemp(suffix=".mp4", prefix="cruxcam_output_", dir=TMP)
+    os.close(fd)
+    output_path = Path(output_tmp)
+
+    if preview_id:
+        p = _preview_paths.pop(preview_id, None)
+        if p:
+            p.unlink(missing_ok=True)
+
+    process_video_task.apply_async(
+        args=[str(input_path), str(output_path), angle_threshold, start_frame, end_frame],
+        task_id=job_id,
+    )
+    return {"job_id": job_id}
+
+
+# ── Upload endpoints ───────────────────────────────────────────────────────────
 
 @app.post("/info")
-async def video_info(video: UploadFile = File(...)):
-    """Return metadata and save file for frame preview during trim selection."""
-    suffix = Path(video.filename).suffix or ".mp4"
+async def video_info(request: Request, video: UploadFile = File(...)):
+    _check_upload_size(request)
+    _validate_video(video.filename or "", video.content_type)
+
+    suffix = Path(video.filename).suffix.lower() if video.filename else ".mp4"
     preview_id = str(uuid.uuid4())
     fd, tmp = tempfile.mkstemp(suffix=suffix, prefix="cruxcam_preview_", dir=TMP)
     os.close(fd)
@@ -48,36 +179,21 @@ async def video_info(video: UploadFile = File(...)):
         shutil.copyfileobj(video.file, f)
 
     try:
-        cap = cv2.VideoCapture(str(preview_path))
-        if not cap.isOpened():
-            preview_path.unlink(missing_ok=True)
-            _preview_paths.pop(preview_id, None)
-            raise HTTPException(status_code=400, detail="Could not read video file")
-        fps = int(cap.get(cv2.CAP_PROP_FPS))
-        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        cap.release()
+        info = _read_video_info(preview_path)
     except HTTPException:
+        preview_path.unlink(missing_ok=True)
+        _preview_paths.pop(preview_id, None)
         raise
     except Exception as exc:
         preview_path.unlink(missing_ok=True)
         _preview_paths.pop(preview_id, None)
         raise HTTPException(status_code=500, detail=str(exc))
 
-    return {
-        "fps": fps,
-        "width": width,
-        "height": height,
-        "total_frames": total_frames,
-        "duration": total_frames / max(fps, 1),
-        "preview_id": preview_id,
-    }
+    return {**info, "preview_id": preview_id}
 
 
 @app.get("/frame/{preview_id}")
 def get_preview_frame(preview_id: str, n: int = Query(default=0, ge=0)):
-    """Return a single frame from a preview file as JPEG."""
     preview_path = _preview_paths.get(preview_id)
     if not preview_path or not preview_path.exists():
         raise HTTPException(status_code=404, detail="Preview not found")
@@ -97,16 +213,20 @@ def get_preview_frame(preview_id: str, n: int = Query(default=0, ge=0)):
 
 @app.post("/upload", status_code=202)
 async def upload_video(
+    request: Request,
     video: UploadFile = File(...),
     angle_threshold: int = Query(default=90, ge=30, le=120),
     start_frame: int = Query(default=0, ge=0),
     end_frame: Optional[int] = Query(default=None, ge=1),
     preview_id: Optional[str] = Query(default=None),
 ):
-    """Accept a video file, save it, and enqueue a processing job."""
+    _check_upload_size(request)
+    _check_rate_limit(request)
+    _validate_video(video.filename or "", video.content_type)
     _cleanup_old_files()
+
     job_id = str(uuid.uuid4())
-    suffix = Path(video.filename).suffix or ".mp4"
+    suffix = Path(video.filename).suffix.lower() if video.filename else ".mp4"
 
     fd, input_tmp = tempfile.mkstemp(suffix=suffix, prefix="cruxcam_upload_", dir=TMP)
     os.close(fd)
@@ -119,25 +239,23 @@ async def upload_video(
     with open(input_path, "wb") as f:
         shutil.copyfileobj(video.file, f)
 
-    # Clean up preview now that processing is starting
     if preview_id:
         p = _preview_paths.pop(preview_id, None)
         if p:
             p.unlink(missing_ok=True)
 
     process_video_task.apply_async(
-        args=[str(input_path), str(output_path), angle_threshold,
-              start_frame, end_frame],
+        args=[str(input_path), str(output_path), angle_threshold, start_frame, end_frame],
         task_id=job_id,
     )
     return {"job_id": job_id}
 
 
+# ── Result endpoints ───────────────────────────────────────────────────────────
+
 @app.get("/status/{job_id}")
 def get_status(job_id: str):
-    """Return the current state and progress (0–1) of a job."""
     task = AsyncResult(job_id, app=celery_app)
-
     if task.state == "PENDING":
         return {"status": "pending", "progress": 0.0}
     if task.state == "PROGRESS":
@@ -153,25 +271,18 @@ def get_status(job_id: str):
 
 @app.get("/result/{job_id}")
 def get_result(job_id: str):
-    """Return the serialized AnalysisResult for a completed job."""
     task = AsyncResult(job_id, app=celery_app)
     if task.state != "SUCCESS":
-        raise HTTPException(
-            status_code=404,
-            detail=f"Job not complete (state: {task.state})",
-        )
+        raise HTTPException(status_code=404, detail=f"Job not complete (state: {task.state})")
     return task.result
 
 
 @app.get("/video/{job_id}")
 def get_video(job_id: str):
-    """Stream the processed video file for a completed job."""
     task = AsyncResult(job_id, app=celery_app)
     if task.state != "SUCCESS":
         raise HTTPException(status_code=404, detail="Job not complete")
-
     video_path = task.result.get("processed_video_path")
     if not video_path or not Path(video_path).exists():
         raise HTTPException(status_code=404, detail="Video file not found")
-
     return FileResponse(video_path, media_type="video/mp4")

@@ -1,0 +1,77 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-navy text-cream font-body antialiased;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cpath d='M0 80 Q50 60 100 80 Q150 100 200 80' stroke='%231B2D4F' stroke-width='1' fill='none'/%3E%3Cpath d='M0 120 Q50 100 100 120 Q150 140 200 120' stroke='%231B2D4F' stroke-width='1' fill='none'/%3E%3Cpath d='M0 160 Q50 140 100 160 Q150 180 200 160' stroke='%231B2D4F' stroke-width='1' fill='none'/%3E%3Cpath d='M0 40 Q50 20 100 40 Q150 60 200 40' stroke='%231B2D4F' stroke-width='1' fill='none'/%3E%3C/svg%3E");
+  }
+}
+
+@layer components {
+  .btn-primary {
+    @apply bg-terracotta hover:bg-terracotta-light active:bg-terracotta-dark
+           text-cream font-display tracking-widest uppercase
+           px-8 py-3 text-sm
+           transition-colors duration-150
+           disabled:opacity-40 disabled:cursor-not-allowed;
+  }
+
+  .btn-ghost {
+    @apply border border-cream/30 hover:border-cream/60
+           text-cream/70 hover:text-cream font-body text-sm
+           px-4 py-2
+           transition-colors duration-150;
+  }
+
+  .card {
+    @apply bg-navy-light border border-navy-lighter;
+  }
+
+  /* Dual-handle range slider */
+  .range-track {
+    @apply relative flex items-center h-8;
+  }
+
+  .range-thumb {
+    @apply absolute w-full h-full appearance-none bg-transparent outline-none pointer-events-none cursor-pointer;
+  }
+
+  .range-thumb::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    pointer-events: auto;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: #F0EBE0;
+    border: 2px solid #C4622D;
+    cursor: grab;
+    position: relative;
+    z-index: 3;
+  }
+
+  .range-thumb::-webkit-slider-thumb:active {
+    cursor: grabbing;
+    background: #C4622D;
+  }
+
+  .range-thumb::-moz-range-thumb {
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: #F0EBE0;
+    border: 2px solid #C4622D;
+    cursor: grab;
+    pointer-events: auto;
+  }
+
+  .range-thumb::-webkit-slider-runnable-track {
+    background: transparent;
+  }
+
+  /* Efficiency bar */
+  .efficiency-bar {
+    @apply h-2 rounded-full bg-navy-lighter overflow-hidden;
+  }
+}

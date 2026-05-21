@@ -37,6 +37,11 @@ celerybeat.pid
 notebooks/test_out/
 .ipynb_checkpoints/
 
+# ── Frontend ───────────────────────────────────────────────────────────────────
+frontend/node_modules/
+frontend/dist/
+frontend/.env.local
+
 # ── Personal reference ─────────────────────────────────────────────────────────
 ARCHITECTURE.md
 Procfile
