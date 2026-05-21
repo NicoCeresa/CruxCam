@@ -10,6 +10,7 @@ class AnalysisResult:
     good_frames: int
     bad_frames: int
     efficiency: float
+    fps: int = 30
     processed_video_path: Optional[str] = None
     # Each entry: (frame_num, world_lms_33x3, is_good, com_xyz)
     # world_lms_33x3 is None when MediaPipe world landmarks unavailable

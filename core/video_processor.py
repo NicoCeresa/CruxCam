@@ -165,6 +165,7 @@ class VideoProcessor:
             good_frames=good_frames,
             bad_frames=bad_frames,
             efficiency=efficiency,
+            fps=fps,
             processed_video_path=output_path,
             pose_data_3d=pose_data_3d if pose_data_3d else None
         )

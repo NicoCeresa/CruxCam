@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
-import { getVideoUrl } from '../api'
+import { getSkeletonVideoUrl, getVideoUrl } from '../api'
 import type { AnalysisResult, PoseEntry, VideoInfo } from '../types'
 
 const Skeleton3D = lazy(() => import('./Skeleton3D'))
@@ -27,9 +27,8 @@ export default function ResultsPanel({ result, videoInfo, jobId, onReset }: Prop
 
   const [currentFrame, setCurrentFrame] = useState(0)
   const [isPlaying, setIsPlaying]       = useState(false)
-  const [isRecording, setIsRecording]   = useState(false)
-  const videoRef             = useRef<HTMLVideoElement>(null)
-  const rafRef               = useRef<number | null>(null)
+  const videoRef               = useRef<HTMLVideoElement>(null)
+  const rafRef                 = useRef<number | null>(null)
   const skeleton3DContainerRef = useRef<HTMLDivElement>(null)
 
   const videoUrl = getVideoUrl(jobId)
@@ -97,43 +96,6 @@ export default function ResultsPanel({ result, videoInfo, jobId, onReset }: Prop
       return Math.abs(e[0] - currentFrame) < Math.abs(best[0] - currentFrame) ? e : best
     }, undefined)
   const isGoodFrame = currentEntry?.[2] ?? true
-
-  function downloadSkeleton3D() {
-    const container = skeleton3DContainerRef.current
-    if (!container || !videoRef.current || isRecording) return
-    const canvas = container.querySelector('canvas')
-    if (!canvas) return
-
-    const mimeType = MediaRecorder.isTypeSupported('video/mp4')
-      ? 'video/mp4'
-      : 'video/webm'
-    const ext = mimeType === 'video/mp4' ? 'mp4' : 'webm'
-
-    const stream = (canvas as HTMLCanvasElement).captureStream(safeFps)
-    const recorder = new MediaRecorder(stream, { mimeType })
-    const chunks: Blob[] = []
-
-    recorder.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data) }
-    recorder.onstop = () => {
-      const blob = new Blob(chunks, { type: mimeType })
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `cruxcam_3d_${jobId}.${ext}`
-      a.click()
-      URL.revokeObjectURL(url)
-      setIsRecording(false)
-    }
-
-    setIsRecording(true)
-    stopPlay()
-    const video = videoRef.current
-    video.currentTime = 0
-    setCurrentFrame(0)
-    recorder.start()
-    startPlay()
-    video.addEventListener('ended', () => recorder.stop(), { once: true })
-  }
 
   function fmt(frames: number) {
     const secs = frames / safeFps
@@ -216,13 +178,13 @@ export default function ResultsPanel({ result, videoInfo, jobId, onReset }: Prop
               </div>
             )}
           </div>
-          <button
-            className="btn-ghost text-xs w-full"
-            onClick={downloadSkeleton3D}
-            disabled={isRecording || poseData.length === 0}
+          <a
+            href={getSkeletonVideoUrl(jobId)}
+            download={`cruxcam_3d_${jobId}.mp4`}
+            className={`btn-ghost text-xs w-full text-center block ${poseData.length === 0 ? 'pointer-events-none opacity-40' : ''}`}
           >
-            {isRecording ? '⏺ Recording…' : '↓ Download 3D'}
-          </button>
+            ↓ Download 3D
+          </a>
         </div>
       </div>
 

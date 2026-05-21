@@ -26,6 +26,7 @@ def serialize_result(result: AnalysisResult) -> dict:
         "good_frames": result.good_frames,
         "bad_frames": result.bad_frames,
         "efficiency": result.efficiency,
+        "fps": result.fps,
         "processed_video_path": result.processed_video_path,
         "pose_data_3d": pose_data,
     }
@@ -48,6 +49,7 @@ def deserialize_result(data: dict) -> AnalysisResult:
         good_frames=data["good_frames"],
         bad_frames=data["bad_frames"],
         efficiency=data["efficiency"],
+        fps=data.get("fps", 30),
         processed_video_path=data.get("processed_video_path"),
         pose_data_3d=pose_data,
     )

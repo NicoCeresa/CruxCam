@@ -46,7 +46,7 @@ _upload_times: dict[str, list[float]] = defaultdict(list)
 
 def _cleanup_old_files() -> None:
     cutoff = time.time() - FILE_TTL
-    for pattern in ("cruxcam_upload_*", "cruxcam_output_*", "cruxcam_preview_*"):
+    for pattern in ("cruxcam_upload_*", "cruxcam_output_*", "cruxcam_preview_*", "cruxcam_skeleton_*"):
         for path in TMP.glob(pattern):
             if path.is_file() and path.stat().st_mtime < cutoff:
                 path.unlink(missing_ok=True)
@@ -277,6 +277,27 @@ def get_result(job_id: str):
     if task.state != "SUCCESS":
         raise HTTPException(status_code=404, detail=f"Job not complete (state: {task.state})")
     return task.result
+
+
+@app.get("/skeleton_video/{job_id}")
+def get_skeleton_video(job_id: str):
+    task = AsyncResult(job_id, app=celery_app)
+    if task.state != "SUCCESS":
+        raise HTTPException(status_code=404, detail="Job not complete")
+
+    result_data = task.result
+    if not result_data.get("pose_data_3d"):
+        raise HTTPException(status_code=404, detail="No pose data available")
+
+    cache_path = TMP / f"cruxcam_skeleton_{job_id}.mp4"
+    if not cache_path.exists():
+        from .tasks import deserialize_result
+        from core.skeleton_renderer import render_skeleton_video
+        result = deserialize_result(result_data)
+        render_skeleton_video(result.pose_data_3d, result.fps, str(cache_path))
+
+    return FileResponse(str(cache_path), media_type="video/mp4",
+                        filename=f"cruxcam_3d_{job_id}.mp4")
 
 
 @app.get("/video/{job_id}")
