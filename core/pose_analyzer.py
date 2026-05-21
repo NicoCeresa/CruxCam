@@ -138,7 +138,8 @@ class PoseAnalyzer:
         landmarks,
         h: int,
         w: int,
-        world_landmarks
+        world_landmarks,
+        draw: bool = True,
     ) -> None:
         """Weighted body segment CoM computed in world space (meters) then projected to pixel."""
         LP = self.mp_pose.PoseLandmark
@@ -179,6 +180,9 @@ class PoseAnalyzer:
             self._com_x = self._com_alpha * raw_x + (1 - self._com_alpha) * self._com_x
             self._com_y = self._com_alpha * raw_y + (1 - self._com_alpha) * self._com_y
             self._com_z = self._com_alpha * raw_z + (1 - self._com_alpha) * self._com_z
+
+        if not draw:
+            return
 
         mid_x, mid_y = self._com_world_to_pixel(
             (self._com_x, self._com_y), landmarks, world_landmarks, h, w
@@ -229,12 +233,12 @@ class PoseAnalyzer:
 
         if draw:
             is_good_frame = self._draw_landmarks_and_classify(img, results, r_bicep_angle, l_bicep_angle)
-            self._draw_center_of_mass(img, landmarks, h, w, world_lms)
         else:
             is_good_frame = not (
                 r_bicep_angle <= self.angle_threshold and
                 l_bicep_angle <= self.angle_threshold
             )
+        self._draw_center_of_mass(img, landmarks, h, w, world_lms, draw=draw)
 
         world_lms_array = np.array([[lm.x, lm.y, lm.z] for lm in world_lms], dtype=np.float32)
 
