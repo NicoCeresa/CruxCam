@@ -92,7 +92,7 @@ export default function UploadZone({ onJobStart }: Props) {
           Analyze Your Send
         </h1>
         <p className="text-cream/50 text-sm tracking-wide">
-          Upload climbing footage — get frame-by-frame efficiency analysis
+          Upload climbing footage and learn how your body moves throughout the climb.
         </p>
       </div>
 

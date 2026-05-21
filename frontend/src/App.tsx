@@ -34,7 +34,7 @@ export default function App() {
 
   return (
     <div className="min-h-screen flex flex-col">
-      <Header />
+      <Header onHome={handleReset} />
       <main className="flex-1 max-w-5xl w-full mx-auto px-4 py-10">
         {phase === 'upload' && (
           <UploadZone onJobStart={handleJobStart} />
