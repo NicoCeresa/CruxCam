@@ -62,11 +62,10 @@ class VideoProcessor:
             output_path = temp_file.name
             temp_file.close()
         
-        fourcc = cv2.VideoWriter_fourcc(*'avc1')
-        out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
-        if not out.isOpened():
-            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-            out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
+        # Write raw frames with mp4v, then re-encode to H.264 via ffmpeg for browser compatibility
+        tmp_output = output_path.replace('.mp4', '_raw.mp4')
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        out = cv2.VideoWriter(tmp_output, fourcc, fps, (width, height))
         
         self.pose_analyzer.reset()
 
@@ -160,6 +159,13 @@ class VideoProcessor:
         if writer_exc[0]:
             raise writer_exc[0]
         
+        import subprocess
+        subprocess.run(
+            ['ffmpeg', '-y', '-i', tmp_output, '-c:v', 'libx264', '-preset', 'fast', '-crf', '23', output_path],
+            check=True, capture_output=True,
+        )
+        Path(tmp_output).unlink(missing_ok=True)
+
         total = good_frames + bad_frames
         efficiency = (good_frames / total * 100.0) if total > 0 else 0.0
 
