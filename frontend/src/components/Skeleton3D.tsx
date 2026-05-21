@@ -67,7 +67,7 @@ function Scene({ landmarks, isGood, com, target }: SceneProps) {
     // Joints — one instanced mesh, one draw call
     for (let i = 0; i < 33; i++) {
       const [x, y, z] = landmarks[i] ?? [0, 0, 0]
-      dummy.position.set(x, -y, z) // flip Y: MediaPipe y-down → Three.js y-up
+      dummy.position.set(-x, -y, z) // flip Y (MP y-down→Three.js y-up), flip X (mirror)
       dummy.scale.setScalar(1)
       dummy.updateMatrix()
       jointsRef.current.setMatrixAt(i, dummy.matrix)
@@ -80,14 +80,14 @@ function Scene({ landmarks, isGood, com, target }: SceneProps) {
     for (const [a, b] of CONNECTIONS) {
       const [ax, ay, az] = landmarks[a] ?? [0, 0, 0]
       const [bx, by, bz] = landmarks[b] ?? [0, 0, 0]
-      attr.setXYZ(vi++, ax, -ay, az)
-      attr.setXYZ(vi++, bx, -by, bz)
+      attr.setXYZ(vi++, -ax, -ay, az)
+      attr.setXYZ(vi++, -bx, -by, bz)
     }
     attr.needsUpdate = true
 
     // CoM
     if (com) {
-      comRef.current.position.set(com[0], -com[1], com[2])
+      comRef.current.position.set(-com[0], -com[1], com[2])
       comRef.current.visible = true
     } else {
       comRef.current.visible = false
@@ -96,7 +96,7 @@ function Scene({ landmarks, isGood, com, target }: SceneProps) {
 
   return (
     <>
-      <color attach="background" args={['#0F1E35']} />
+      <color attach="background" args={['#2B3F5E']} />
       <ambientLight intensity={2} />
 
       <instancedMesh ref={jointsRef} args={[undefined, undefined, 33]} frustumCulled={false}>
@@ -148,7 +148,7 @@ export default function Skeleton3D({ poseData, currentFrame, isGood }: Props) {
     for (const [, lms] of poseData) {
       if (!lms) continue
       for (const [x, y, z] of lms) {
-        if (x  < minX) minX = x;  if (x  > maxX) maxX = x
+        if (-x < minX) minX = -x; if (-x > maxX) maxX = -x
         if (-y < minY) minY = -y; if (-y > maxY) maxY = -y
         if (z  < minZ) minZ = z;  if (z  > maxZ) maxZ = z
       }

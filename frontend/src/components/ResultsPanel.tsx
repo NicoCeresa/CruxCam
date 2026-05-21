@@ -5,9 +5,9 @@ import type { AnalysisResult, PoseEntry, VideoInfo } from '../types'
 const Skeleton3D = lazy(() => import('./Skeleton3D'))
 
 function gradeLabel(efficiency: number): { label: string; color: string } {
-  if (efficiency >= 70) return { label: 'Solid Form',      color: 'text-forest-light' }
-  if (efficiency >= 50) return { label: 'Needs Work',      color: 'text-yellow-400'   }
-  return                       { label: 'Gripped',         color: 'text-red-400'      }
+  if (efficiency >= 70) return { label: 'Solid Form', color: 'text-forest-light' }
+  if (efficiency >= 50) return { label: 'Needs Work', color: 'text-yellow-400'   }
+  return                       { label: 'Gripped',    color: 'text-red-400'      }
 }
 
 interface Props {
@@ -19,60 +19,85 @@ interface Props {
 
 export default function ResultsPanel({ result, videoInfo, jobId, onReset }: Props) {
   const { fps, total_frames } = videoInfo
+  const safeFps = Math.max(fps, 1)
   const poseData = result.pose_data_3d ?? []
   const totalFrames = poseData.length > 0
     ? Math.max(...poseData.map(e => e[0])) + 1
     : total_frames
 
   const [currentFrame, setCurrentFrame] = useState(0)
-  const [isPlaying, setIsPlaying] = useState(false)
+  const [isPlaying, setIsPlaying]       = useState(false)
   const videoRef = useRef<HTMLVideoElement>(null)
-  const playRef  = useRef<ReturnType<typeof setInterval> | null>(null)
+  const rafRef   = useRef<number | null>(null)
 
   const videoUrl = getVideoUrl(jobId)
   const { label: grade, color: gradeColor } = gradeLabel(result.efficiency)
 
-  // Sync video currentTime from frame index
-  useEffect(() => {
-    if (videoRef.current) {
-      videoRef.current.currentTime = currentFrame / Math.max(fps, 1)
-    }
-  }, [currentFrame, fps])
+  // ── Playback via requestAnimationFrame reading video.currentTime
+  //    The video plays natively — no seeking during playback, no stalls.
 
-  // Play/pause loop
   const stopPlay = useCallback(() => {
-    if (playRef.current) clearInterval(playRef.current)
-    playRef.current = null
+    if (rafRef.current !== null) cancelAnimationFrame(rafRef.current)
+    rafRef.current = null
+    videoRef.current?.pause()
     setIsPlaying(false)
   }, [])
 
   const startPlay = useCallback(() => {
+    const video = videoRef.current
+    if (!video) return
+    video.play().catch(() => {}) // ignore autoplay policy rejections
+
     setIsPlaying(true)
-    playRef.current = setInterval(() => {
-      setCurrentFrame(f => {
-        if (f + 1 >= totalFrames) { stopPlay(); return f }
-        return f + 1
-      })
-    }, 1000 / Math.max(fps, 1))
-  }, [fps, totalFrames, stopPlay])
+
+    const tick = () => {
+      const v = videoRef.current
+      if (!v || v.paused || v.ended) {
+        setIsPlaying(false)
+        return
+      }
+      setCurrentFrame(Math.round(v.currentTime * safeFps))
+      rafRef.current = requestAnimationFrame(tick)
+    }
+    rafRef.current = requestAnimationFrame(tick)
+  }, [safeFps])
 
   function togglePlay() {
     isPlaying ? stopPlay() : startPlay()
   }
 
-  // Cleanup on unmount
+  // ── Scrubbing: only seek when paused (no seek during playback)
+  function handleScrub(frame: number) {
+    stopPlay()
+    setCurrentFrame(frame)
+    if (videoRef.current) {
+      videoRef.current.currentTime = frame / safeFps
+    }
+  }
+
+  // ── Stop if video ends naturally
+  useEffect(() => {
+    const v = videoRef.current
+    if (!v) return
+    const onEnded = () => { setIsPlaying(false); rafRef.current = null }
+    v.addEventListener('ended', onEnded)
+    return () => v.removeEventListener('ended', onEnded)
+  }, [])
+
+  // ── Cleanup on unmount
   useEffect(() => () => stopPlay(), [stopPlay])
 
-  // Current frame's is_good for skeleton color
-  const currentEntry: PoseEntry | undefined = poseData.find(e => e[0] === currentFrame)
-    ?? poseData.reduce<PoseEntry | undefined>((best, e) => {
+  // ── Current frame quality for skeleton colour
+  const currentEntry: PoseEntry | undefined =
+    poseData.find(e => e[0] === currentFrame) ??
+    poseData.reduce<PoseEntry | undefined>((best, e) => {
       if (!best) return e
       return Math.abs(e[0] - currentFrame) < Math.abs(best[0] - currentFrame) ? e : best
     }, undefined)
   const isGoodFrame = currentEntry?.[2] ?? true
 
   function fmt(frames: number) {
-    const secs = frames / Math.max(fps, 1)
+    const secs = frames / safeFps
     const m = Math.floor(secs / 60).toString().padStart(2, '0')
     const s = Math.floor(secs % 60).toString().padStart(2, '0')
     return `${m}:${s}`
@@ -92,7 +117,6 @@ export default function ResultsPanel({ result, videoInfo, jobId, onReset }: Prop
               {grade}
             </span>
           </div>
-          {/* Bar */}
           <div className="efficiency-bar w-48 mt-2">
             <div
               className="h-full transition-all"
@@ -116,11 +140,7 @@ export default function ResultsPanel({ result, videoInfo, jobId, onReset }: Prop
         </div>
 
         <div className="ml-auto flex gap-2">
-          <a
-            href={videoUrl}
-            download={`cruxcam_${jobId}.mp4`}
-            className="btn-ghost text-xs"
-          >
+          <a href={videoUrl} download={`cruxcam_${jobId}.mp4`} className="btn-ghost text-xs">
             ↓ Download
           </a>
           <button className="btn-ghost text-xs" onClick={onReset}>
@@ -131,8 +151,7 @@ export default function ResultsPanel({ result, videoInfo, jobId, onReset }: Prop
 
       {/* Video + 3D side by side */}
       <div className="grid grid-cols-2 gap-4" style={{ height: '380px' }}>
-        {/* Video */}
-        <div className="card overflow-hidden relative">
+        <div className="card overflow-hidden">
           <video
             ref={videoRef}
             src={videoUrl}
@@ -142,7 +161,6 @@ export default function ResultsPanel({ result, videoInfo, jobId, onReset }: Prop
           />
         </div>
 
-        {/* 3D skeleton */}
         <div className="card overflow-hidden">
           {poseData.length > 0 ? (
             <Suspense fallback={<div className="flex items-center justify-center h-full text-cream/30 text-sm">Loading 3D viewer…</div>}>
@@ -167,14 +185,11 @@ export default function ResultsPanel({ result, videoInfo, jobId, onReset }: Prop
           min={0}
           max={totalFrames - 1}
           value={currentFrame}
-          onChange={e => { stopPlay(); setCurrentFrame(Number(e.target.value)) }}
+          onChange={e => handleScrub(Number(e.target.value))}
           className="w-full accent-terracotta"
         />
         <div className="flex items-center gap-4">
-          <button
-            className="btn-primary px-6 py-2 text-xs"
-            onClick={togglePlay}
-          >
+          <button className="btn-primary px-6 py-2 text-xs" onClick={togglePlay}>
             {isPlaying ? '⏸ Pause' : '▶ Play'}
           </button>
           <span className="text-cream/40 text-xs font-body tabular-nums">

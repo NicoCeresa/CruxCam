@@ -17,24 +17,33 @@ interface Props {
 }
 
 export default function ProcessingView({ jobId, onComplete }: Props) {
-  const [progress, setProgress] = useState(0)
+  const [progress, setProgress]     = useState(0)
   const [statusText, setStatusText] = useState('Waiting for worker…')
-  const [msgIndex, setMsgIndex] = useState(0)
-  const [error, setError] = useState<string | null>(null)
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const [error, setError]           = useState<string | null>(null)
 
-  // Cycle through climbing-themed messages
+  // Keep a stable ref to onComplete so the polling closure never goes stale
+  const onCompleteRef = useRef(onComplete)
+  onCompleteRef.current = onComplete
+
+  // Cycle status messages independently of polling
+  const msgIdxRef = useRef(0)
   useEffect(() => {
     const id = setInterval(() => {
-      setMsgIndex(i => (i + 1) % MESSAGES.length)
+      msgIdxRef.current = (msgIdxRef.current + 1) % MESSAGES.length
+      setStatusText(MESSAGES[msgIdxRef.current])
     }, 2500)
     return () => clearInterval(id)
   }, [])
 
+  // Polling — stable interval, only recreated if jobId changes
   useEffect(() => {
-    intervalRef.current = setInterval(async () => {
+    let stopped = false
+
+    const id = setInterval(async () => {
+      if (stopped) return
       try {
         const status = await getStatus(jobId)
+        if (stopped) return
 
         if (status.status === 'pending') {
           setStatusText('Waiting for worker…')
@@ -42,28 +51,33 @@ export default function ProcessingView({ jobId, onComplete }: Props) {
         }
         if (status.status === 'processing') {
           setProgress(status.progress)
-          setStatusText(MESSAGES[msgIndex])
           return
         }
         if (status.status === 'complete') {
+          stopped = true
+          clearInterval(id)
           setProgress(1)
-          clearInterval(intervalRef.current!)
           const result = await getResult(jobId)
-          onComplete(result)
+          onCompleteRef.current(result)
           return
         }
         if (status.status === 'failed') {
-          clearInterval(intervalRef.current!)
+          stopped = true
+          clearInterval(id)
           setError(status.error ?? 'Processing failed')
         }
       } catch (e) {
-        clearInterval(intervalRef.current!)
+        stopped = true
+        clearInterval(id)
         setError(e instanceof Error ? e.message : 'Connection error')
       }
     }, 100)
 
-    return () => clearInterval(intervalRef.current!)
-  }, [jobId, msgIndex, onComplete])
+    return () => {
+      stopped = true
+      clearInterval(id)
+    }
+  }, [jobId])
 
   if (error) {
     return (
@@ -85,7 +99,6 @@ export default function ProcessingView({ jobId, onComplete }: Props) {
         <p className="text-cream/50 text-sm">{statusText}</p>
       </div>
 
-      {/* Progress bar */}
       <div className="space-y-2">
         <div className="efficiency-bar">
           <div
@@ -99,7 +112,6 @@ export default function ProcessingView({ jobId, onComplete }: Props) {
         </div>
       </div>
 
-      {/* Animated rope coil */}
       <div className="flex justify-center">
         <svg viewBox="0 0 60 60" className="w-12 h-12 text-brown-light animate-spin" style={{ animationDuration: '3s' }}>
           <circle cx="30" cy="30" r="20" stroke="currentColor" strokeWidth="3" fill="none" strokeDasharray="30 95" strokeLinecap="round" />
