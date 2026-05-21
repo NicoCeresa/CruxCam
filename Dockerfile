@@ -18,5 +18,8 @@ COPY api/   ./api/
 COPY core/  ./core/
 COPY inputs/ ./inputs/
 
+COPY start.sh ./start.sh
+RUN chmod +x start.sh
+
 EXPOSE 8000
-CMD ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["./start.sh"]
