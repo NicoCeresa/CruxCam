@@ -5,6 +5,9 @@ from .celery_app import celery_app
 from core.pose_analyzer import AnalysisResult, PoseAnalyzer
 from core.video_processor import VideoProcessor
 
+# Cached per worker process — keeps the MediaPipe Pose model loaded across tasks.
+_processor: Optional[VideoProcessor] = None
+
 
 def serialize_result(result: AnalysisResult) -> dict:
     """Convert AnalysisResult to a JSON-safe dict (numpy arrays → lists)."""
@@ -58,12 +61,15 @@ def process_video_task(
     angle_threshold: int = 90,
     start_frame: int = 0,
     end_frame: Optional[int] = None,
+    frame_skip: int = 2,
 ) -> dict:
-    """
-    Celery task that wraps VideoProcessor.process_video.
-    Reports progress via task state so the API can expose it to the frontend.
-    Deletes the uploaded input file after processing.
-    """
+    global _processor
+
+    if _processor is None:
+        _processor = VideoProcessor(PoseAnalyzer(angle_threshold=angle_threshold))
+    else:
+        _processor.pose_analyzer.angle_threshold = angle_threshold
+
     def _progress(current: int, total: int) -> None:
         self.update_state(
             state="PROGRESS",
@@ -71,14 +77,12 @@ def process_video_task(
         )
 
     try:
-        processor = VideoProcessor(
-            PoseAnalyzer(angle_threshold=angle_threshold)
-        )
-        result = processor.process_video(
+        result = _processor.process_video(
             input_path, output_path,
             progress_callback=_progress,
             start_frame=start_frame,
             end_frame=end_frame,
+            frame_skip=frame_skip,
         )
         return serialize_result(result)
     finally:

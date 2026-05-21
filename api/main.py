@@ -132,6 +132,7 @@ def sample_upload(
     start_frame: int = Query(default=0, ge=0),
     end_frame: Optional[int] = Query(default=None, ge=1),
     preview_id: Optional[str] = Query(default=None),
+    frame_skip: int = Query(default=2, ge=1, le=10),
 ):
     if not SAMPLE_PATH.exists():
         raise HTTPException(status_code=404, detail="Sample video not found")
@@ -155,7 +156,7 @@ def sample_upload(
             p.unlink(missing_ok=True)
 
     process_video_task.apply_async(
-        args=[str(input_path), str(output_path), angle_threshold, start_frame, end_frame],
+        args=[str(input_path), str(output_path), angle_threshold, start_frame, end_frame, frame_skip],
         task_id=job_id,
     )
     return {"job_id": job_id}
@@ -219,6 +220,7 @@ async def upload_video(
     start_frame: int = Query(default=0, ge=0),
     end_frame: Optional[int] = Query(default=None, ge=1),
     preview_id: Optional[str] = Query(default=None),
+    frame_skip: int = Query(default=2, ge=1, le=10),
 ):
     _check_upload_size(request)
     _check_rate_limit(request)
@@ -245,7 +247,7 @@ async def upload_video(
             p.unlink(missing_ok=True)
 
     process_video_task.apply_async(
-        args=[str(input_path), str(output_path), angle_threshold, start_frame, end_frame],
+        args=[str(input_path), str(output_path), angle_threshold, start_frame, end_frame, frame_skip],
         task_id=job_id,
     )
     return {"job_id": job_id}
