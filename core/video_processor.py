@@ -69,8 +69,6 @@ class VideoProcessor:
         bad_frames = 0
         frame_count = 0
         pose_data_3d = []
-        last_is_good = True
-        last_angles = None
 
         # Pipeline: reader thread → frame_q → inference (main) → write_q → writer thread
         # Overlaps disk I/O with pose inference so reads and writes don't stall the CPU.
@@ -116,24 +114,17 @@ class VideoProcessor:
                 if reader_exc[0]:
                     raise reader_exc[0]
 
-                if frame_count % frame_skip == 0:
-                    processed_frame, is_good, angles, world_lms = self.pose_analyzer.analyze_frame(
-                        frame, self._pose
-                    )
-                    last_is_good = is_good
-                    last_angles = angles
-                else:
-                    processed_frame = frame
-                    is_good = last_is_good
-                    angles = last_angles
-                    world_lms = None
+                is_inference_frame = frame_count % frame_skip == 0
+                processed_frame, is_good, angles, world_lms = self.pose_analyzer.analyze_frame(
+                    frame, self._pose if is_inference_frame else None
+                )
 
                 if angles is not None:
                     if is_good:
                         good_frames += 1
                     else:
                         bad_frames += 1
-                    if world_lms is not None:
+                    if is_inference_frame and world_lms is not None:
                         pose_data_3d.append((
                             frame_count,
                             world_lms,

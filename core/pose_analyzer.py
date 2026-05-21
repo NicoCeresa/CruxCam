@@ -36,6 +36,7 @@ class PoseAnalyzer:
         self._com_x: Optional[float] = None
         self._com_y: Optional[float] = None
         self._com_z: Optional[float] = None
+        self._last_results = None
 
     @property
     def com_3d(self) -> Optional[Tuple[float, float, float]]:
@@ -202,10 +203,12 @@ class PoseAnalyzer:
             (processed_image, is_good_frame, (r_angle, l_angle), world_lms_33x3)
             angles and world_lms_33x3 are None when MediaPipe landmarks are unavailable.
         """
-        img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-        results = pose.process(img_rgb)
+        if pose is not None:
+            img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+            self._last_results = pose.process(img_rgb)
 
-        if not results.pose_landmarks or not results.pose_world_landmarks:
+        results = self._last_results
+        if results is None or not results.pose_landmarks or not results.pose_world_landmarks:
             return img, True, None, None
 
         h, w = img.shape[:2]
