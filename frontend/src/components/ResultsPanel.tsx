@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
-import { getSkeletonVideoUrl, getVideoUrl } from '../api'
+import { getVideoUrl } from '../api'
 import type { AnalysisResult, PoseEntry, VideoInfo } from '../types'
 
 const Skeleton3D = lazy(() => import('./Skeleton3D'))
@@ -27,9 +27,8 @@ export default function ResultsPanel({ result, videoInfo, jobId, onReset }: Prop
 
   const [currentFrame, setCurrentFrame] = useState(0)
   const [isPlaying, setIsPlaying]       = useState(false)
-  const videoRef               = useRef<HTMLVideoElement>(null)
-  const rafRef                 = useRef<number | null>(null)
-  const skeleton3DContainerRef = useRef<HTMLDivElement>(null)
+  const videoRef = useRef<HTMLVideoElement>(null)
+  const rafRef   = useRef<number | null>(null)
 
   const videoUrl = getVideoUrl(jobId)
   const { label: grade, color: gradeColor } = gradeLabel(result.efficiency)
@@ -162,29 +161,20 @@ export default function ResultsPanel({ result, videoInfo, jobId, onReset }: Prop
           />
         </div>
 
-        <div className="flex flex-col gap-2 h-[340px] md:h-[380px]">
-          <div className="card overflow-hidden flex-1 min-h-0" ref={skeleton3DContainerRef}>
-            {poseData.length > 0 ? (
-              <Suspense fallback={<div className="flex items-center justify-center h-full text-cream/30 text-sm">Loading 3D viewer…</div>}>
-                <Skeleton3D
-                  poseData={poseData}
-                  currentFrame={currentFrame}
-                  isGood={isGoodFrame}
-                />
-              </Suspense>
-            ) : (
-              <div className="flex items-center justify-center h-full text-cream/30 text-sm">
-                No pose data available
-              </div>
-            )}
-          </div>
-          <a
-            href={getSkeletonVideoUrl(jobId)}
-            download={`cruxcam_3d_${jobId}.mp4`}
-            className={`btn-ghost text-xs w-full text-center block ${poseData.length === 0 ? 'pointer-events-none opacity-40' : ''}`}
-          >
-            ↓ Download 3D
-          </a>
+        <div className="card overflow-hidden h-[340px] md:h-[380px]">
+          {poseData.length > 0 ? (
+            <Suspense fallback={<div className="flex items-center justify-center h-full text-cream/30 text-sm">Loading 3D viewer…</div>}>
+              <Skeleton3D
+                poseData={poseData}
+                currentFrame={currentFrame}
+                isGood={isGoodFrame}
+              />
+            </Suspense>
+          ) : (
+            <div className="flex items-center justify-center h-full text-cream/30 text-sm">
+              No pose data available
+            </div>
+          )}
         </div>
       </div>
 
