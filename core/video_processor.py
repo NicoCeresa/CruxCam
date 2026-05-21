@@ -115,8 +115,8 @@ class VideoProcessor:
                     raise reader_exc[0]
 
                 is_inference_frame = frame_count % frame_skip == 0
-                processed_frame, is_good, angles, world_lms = self.pose_analyzer.analyze_frame(
-                    frame, self._pose if is_inference_frame else None
+                _, is_good, angles, world_lms = self.pose_analyzer.analyze_frame(
+                    frame, self._pose if is_inference_frame else None, draw=False
                 )
 
                 if angles is not None:
@@ -132,10 +132,7 @@ class VideoProcessor:
                             self.pose_analyzer.com_3d
                         ))
 
-                processed_frame = self.pose_analyzer.add_stats_overlay(
-                    processed_frame, good_frames, bad_frames
-                )
-                write_q.put(processed_frame)
+                write_q.put(frame)
 
                 frame_count += 1
                 if progress_callback:

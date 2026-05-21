@@ -194,7 +194,8 @@ class PoseAnalyzer:
     def analyze_frame(
         self,
         img: np.ndarray,
-        pose
+        pose,
+        draw: bool = True,
     ) -> Tuple[np.ndarray, bool, Optional[Tuple[float, float]], Optional[np.ndarray]]:
         """
         Analyze a single frame for climbing efficiency.
@@ -226,8 +227,14 @@ class PoseAnalyzer:
             np.array(l_w) - np.array(l_e)
         )
 
-        is_good_frame = self._draw_landmarks_and_classify(img, results, r_bicep_angle, l_bicep_angle)
-        self._draw_center_of_mass(img, landmarks, h, w, world_lms)
+        if draw:
+            is_good_frame = self._draw_landmarks_and_classify(img, results, r_bicep_angle, l_bicep_angle)
+            self._draw_center_of_mass(img, landmarks, h, w, world_lms)
+        else:
+            is_good_frame = not (
+                r_bicep_angle <= self.angle_threshold and
+                l_bicep_angle <= self.angle_threshold
+            )
 
         world_lms_array = np.array([[lm.x, lm.y, lm.z] for lm in world_lms], dtype=np.float32)
 
