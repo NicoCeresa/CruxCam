@@ -27,8 +27,10 @@ export default function ResultsPanel({ result, videoInfo, jobId, onReset }: Prop
 
   const [currentFrame, setCurrentFrame] = useState(0)
   const [isPlaying, setIsPlaying]       = useState(false)
-  const videoRef = useRef<HTMLVideoElement>(null)
-  const rafRef   = useRef<number | null>(null)
+  const [isRecording, setIsRecording]   = useState(false)
+  const videoRef             = useRef<HTMLVideoElement>(null)
+  const rafRef               = useRef<number | null>(null)
+  const skeleton3DContainerRef = useRef<HTMLDivElement>(null)
 
   const videoUrl = getVideoUrl(jobId)
   const { label: grade, color: gradeColor } = gradeLabel(result.efficiency)
@@ -96,6 +98,43 @@ export default function ResultsPanel({ result, videoInfo, jobId, onReset }: Prop
     }, undefined)
   const isGoodFrame = currentEntry?.[2] ?? true
 
+  function downloadSkeleton3D() {
+    const container = skeleton3DContainerRef.current
+    if (!container || !videoRef.current || isRecording) return
+    const canvas = container.querySelector('canvas')
+    if (!canvas) return
+
+    const mimeType = MediaRecorder.isTypeSupported('video/mp4')
+      ? 'video/mp4'
+      : 'video/webm'
+    const ext = mimeType === 'video/mp4' ? 'mp4' : 'webm'
+
+    const stream = (canvas as HTMLCanvasElement).captureStream(safeFps)
+    const recorder = new MediaRecorder(stream, { mimeType })
+    const chunks: Blob[] = []
+
+    recorder.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data) }
+    recorder.onstop = () => {
+      const blob = new Blob(chunks, { type: mimeType })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `cruxcam_3d_${jobId}.${ext}`
+      a.click()
+      URL.revokeObjectURL(url)
+      setIsRecording(false)
+    }
+
+    setIsRecording(true)
+    stopPlay()
+    const video = videoRef.current
+    video.currentTime = 0
+    setCurrentFrame(0)
+    recorder.start()
+    startPlay()
+    video.addEventListener('ended', () => recorder.stop(), { once: true })
+  }
+
   function fmt(frames: number) {
     const secs = frames / safeFps
     const m = Math.floor(secs / 60).toString().padStart(2, '0')
@@ -150,8 +189,8 @@ export default function ResultsPanel({ result, videoInfo, jobId, onReset }: Prop
       </div>
 
       {/* Video + 3D side by side */}
-      <div className="grid grid-cols-2 gap-4" style={{ height: '380px' }}>
-        <div className="card overflow-hidden">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="card overflow-hidden h-[300px] md:h-[380px]">
           <video
             ref={videoRef}
             src={`${videoUrl}#t=0.001`}
@@ -161,20 +200,29 @@ export default function ResultsPanel({ result, videoInfo, jobId, onReset }: Prop
           />
         </div>
 
-        <div className="card overflow-hidden">
-          {poseData.length > 0 ? (
-            <Suspense fallback={<div className="flex items-center justify-center h-full text-cream/30 text-sm">Loading 3D viewer…</div>}>
-              <Skeleton3D
-                poseData={poseData}
-                currentFrame={currentFrame}
-                isGood={isGoodFrame}
-              />
-            </Suspense>
-          ) : (
-            <div className="flex items-center justify-center h-full text-cream/30 text-sm">
-              No pose data available
-            </div>
-          )}
+        <div className="flex flex-col gap-2 h-[340px] md:h-[380px]">
+          <div className="card overflow-hidden flex-1 min-h-0" ref={skeleton3DContainerRef}>
+            {poseData.length > 0 ? (
+              <Suspense fallback={<div className="flex items-center justify-center h-full text-cream/30 text-sm">Loading 3D viewer…</div>}>
+                <Skeleton3D
+                  poseData={poseData}
+                  currentFrame={currentFrame}
+                  isGood={isGoodFrame}
+                />
+              </Suspense>
+            ) : (
+              <div className="flex items-center justify-center h-full text-cream/30 text-sm">
+                No pose data available
+              </div>
+            )}
+          </div>
+          <button
+            className="btn-ghost text-xs w-full"
+            onClick={downloadSkeleton3D}
+            disabled={isRecording || poseData.length === 0}
+          >
+            {isRecording ? '⏺ Recording…' : '↓ Download 3D'}
+          </button>
         </div>
       </div>
 

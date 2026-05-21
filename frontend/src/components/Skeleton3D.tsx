@@ -110,7 +110,7 @@ function Scene({ landmarks, isGood, com, target }: SceneProps) {
       </lineSegments>
 
       <mesh ref={comRef} visible={false} frustumCulled={false}>
-        <sphereGeometry args={[0.03, 10, 10]} />
+        <sphereGeometry args={[0.06, 10, 10]} />
         <meshBasicMaterial color={COM_COLOR} />
       </mesh>
 
