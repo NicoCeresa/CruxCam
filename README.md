@@ -18,32 +18,36 @@ It also estimates the climber's **center of mass (CoM)** using biomechanically w
 ## Architecture
 
 ```
-React frontend → FastAPI → Celery worker → Redis
+Vercel (React) → Railway (FastAPI + Celery + Redis)
 ```
 
-- **React** (`frontend/`) — upload, trim, polling, results with interactive 3D viewer
+- **React** (`frontend/`) — upload, trim, polling, results with interactive 3D skeleton viewer
 - **FastAPI** (`api/main.py`) — REST endpoints: `/info`, `/upload`, `/status/{id}`, `/result/{id}`, `/video/{id}`, `/sample/*`
-- **Celery** (`api/tasks.py`) — runs `VideoProcessor.process_video` in a worker process
+- **Celery** (`api/tasks.py`) — runs `VideoProcessor.process_video` in a background worker
 - **Redis** — message broker and result backend
 
-Video processing uses a producer-consumer threading pipeline inside the worker: a reader thread decodes frames into a queue, the main worker thread runs pose inference, and a writer thread encodes frames to disk — overlapping I/O with inference.
+The API and Celery worker run in the same Docker container via `start.sh`. Video processing uses a producer-consumer threading pipeline: a reader thread decodes frames into a queue, the main worker thread runs pose inference, and a writer thread encodes frames to disk — overlapping I/O with inference.
 
 ## Stack
 
 - [MediaPipe](https://google.github.io/mediapipe/) — 3D pose estimation (world landmarks)
 - [OpenCV](https://opencv.org/) — video I/O and frame annotation
+- [ffmpeg](https://ffmpeg.org/) — video re-encoding fallback
 - [React](https://react.dev/) + [Vite](https://vitejs.dev/) — web frontend
 - [Three.js](https://threejs.org/) + [@react-three/fiber](https://docs.pmnd.rs/react-three-fiber) — interactive 3D skeleton viewer
 - [Tailwind CSS](https://tailwindcss.com/) — styling
 - [FastAPI](https://fastapi.tiangolo.com/) — REST API
 - [Celery](https://docs.celeryq.dev/) — async task queue
 - [Redis](https://redis.io/) — broker and result backend
+- [Docker](https://www.docker.com/) — containerised backend deployment
 
 ## Project structure
 
 ```
 CruxCam/
-├── frontend/                 # React + Vite frontend
+├── frontend/                 # React + Vite frontend (deployed to Vercel)
+│   ├── public/
+│   │   └── climbing_logo.png
 │   ├── src/
 │   │   ├── App.tsx
 │   │   ├── api.ts            # Typed wrappers for all API endpoints
@@ -56,6 +60,7 @@ CruxCam/
 │   │       ├── ResultsPanel.tsx
 │   │       └── Skeleton3D.tsx  # Three.js skeleton viewer
 │   ├── index.html
+│   ├── vercel.json
 │   └── package.json
 ├── api/
 │   ├── celery_app.py         # Celery configuration
@@ -64,14 +69,16 @@ CruxCam/
 ├── core/
 │   ├── pose_analyzer.py      # Angle calculation, CoM, frame annotation
 │   └── video_processor.py    # Threaded video pipeline, AnalysisResult
-├── notebooks/
-│   └── 01_test_models.ipynb
-└── inputs/                   # Sample videos (gitignored)
+├── inputs/                   # Sample videos (gitignored except .gitkeep)
+├── Dockerfile                # Backend image (FastAPI + Celery + ffmpeg)
+├── docker-compose.yml        # Local development
+├── start.sh                  # Entrypoint: starts Celery worker + uvicorn
+└── requirements.txt          # Production Python dependencies
 ```
 
 ## Setup
 
-**Prerequisites:** Python 3.10+, Node.js 18+, Redis running locally
+**Prerequisites:** Python 3.11+, Node.js 18+, Redis running locally
 
 ```bash
 git clone https://github.com/NicoCeresa/CruxCam.git
@@ -80,12 +87,19 @@ pip install -r requirements.txt
 cd frontend && npm install
 ```
 
-## Running
+## Running locally
 
-Four processes, each in its own terminal:
+**Option A — Docker (recommended)**
 
 ```bash
-# 1. Redis (if not already running as a service)
+docker compose up --build
+cd frontend && npm run dev
+```
+
+**Option B — manually, four terminals**
+
+```bash
+# 1. Redis
 redis-server
 
 # 2. FastAPI
@@ -113,7 +127,7 @@ Open [http://localhost:5173](http://localhost:5173).
 
 ## Usage
 
-1. Upload a climbing video (MP4, MOV, AVI, MKV) or check **Use sample video**
+1. Upload a climbing video (MP4, MOV, AVI, MKV, WebM) or click **Use sample video**
 2. Adjust the arm angle threshold (default 90°) — frames where both elbows are below this angle count as compressed
 3. Trim the clip using the range slider with live frame previews
 4. Click **Analyze Footage**
@@ -133,17 +147,17 @@ efficiency = (good_frames / total_frames) × 100
 
 ## Deployment
 
-The frontend and backend deploy independently:
+The frontend and backend deploy independently.
 
-| Service | Platform |
-|---|---|
-| React frontend | Vercel or Netlify (`frontend/` as root) |
-| FastAPI | Railway or Render |
-| Celery worker | Railway or Render (second service, same repo) |
-| Redis | Railway managed Redis or Redis Cloud |
+**Frontend → Vercel**
+- Connect GitHub repo, set root directory to `frontend`
+- Add env var: `VITE_API_URL=https://your-railway-url.up.railway.app`
 
-Set `VITE_API_URL` to the deployed FastAPI URL in your frontend deploy environment.  
-Set `CRUXCAM_ALLOWED_ORIGINS` to your frontend domain on the API server.
+**Backend → Railway**
+- Deploy from GitHub repo (auto-detects `Dockerfile`)
+- Add managed Redis service, set `REDIS_URL`
+- Add env var: `CRUXCAM_ALLOWED_ORIGINS=https://your-vercel-url.vercel.app`
+- `start.sh` runs both the API and Celery worker in one container
 
 ## Future work
 
