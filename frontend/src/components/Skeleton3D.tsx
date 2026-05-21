@@ -96,7 +96,7 @@ function Scene({ landmarks, isGood, com, target }: SceneProps) {
 
   return (
     <>
-      <color attach="background" args={['#2B3F5E']} />
+      <color attach="background" args={['#0D1A2B']} />
       <ambientLight intensity={2} />
 
       <instancedMesh ref={jointsRef} args={[undefined, undefined, 33]} frustumCulled={false}>
