@@ -140,9 +140,6 @@ export default function ResultsPanel({ result, videoInfo, jobId, onReset }: Prop
         </div>
 
         <div className="ml-auto flex gap-2">
-          <a href={videoUrl} download={`cruxcam_${jobId}.mp4`} className="btn-ghost text-xs">
-            ↓ Download
-          </a>
           <button className="btn-ghost text-xs" onClick={onReset}>
             ← New Video
           </button>
