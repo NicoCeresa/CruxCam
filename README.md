@@ -21,7 +21,7 @@ It also estimates the climber's **center of mass (CoM)** using biomechanically w
 Vercel (React) → Railway (FastAPI + Celery + Redis)
 ```
 
-- **React** (`frontend/`) — upload, trim, polling, results with interactive 3D skeleton viewer
+- **React** (`frontend/`) — upload, trim, polling, results with interactive 3D skeleton viewer; routes via React Router (`/` upload/processing, `/results/:jobId` results)
 - **FastAPI** (`api/main.py`) — REST endpoints: `/info`, `/upload`, `/status/{id}`, `/result/{id}`, `/video/{id}`, `/sample/*`
 - **Celery** (`api/tasks.py`) — runs `VideoProcessor.process_video` in a background worker
 - **Redis** — message broker and result backend
@@ -34,6 +34,7 @@ The API and Celery worker run in the same Docker container via `start.sh`. Video
 - [OpenCV](https://opencv.org/) — video I/O and frame annotation
 - [ffmpeg](https://ffmpeg.org/) — video re-encoding fallback
 - [React](https://react.dev/) + [Vite](https://vitejs.dev/) — web frontend
+- [React Router](https://reactrouter.com/) — client-side routing
 - [Three.js](https://threejs.org/) + [@react-three/fiber](https://docs.pmnd.rs/react-three-fiber) — interactive 3D skeleton viewer
 - [Tailwind CSS](https://tailwindcss.com/) — styling
 - [FastAPI](https://fastapi.tiangolo.com/) — REST API
@@ -130,7 +131,7 @@ Open [http://localhost:5173](http://localhost:5173).
 1. Upload a climbing video (MP4, MOV, AVI, MKV, WebM) or click **Use sample video**
 2. Adjust the arm angle threshold (default 90°) — frames where both elbows are below this angle count as compressed
 3. Trim the clip using the range slider with live frame previews
-4. Click **Analyze Footage**
+4. Click **Analyze Footage** — the app navigates to `/results/:jobId` once processing completes
 5. View the annotated video alongside the interactive 3D skeleton — scrub or play both in sync, rotate the 3D view freely while playing
 
 ## Efficiency score
