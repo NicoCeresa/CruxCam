@@ -7,7 +7,12 @@ const BASE = import.meta.env.VITE_API_URL ?? '/api'
 async function checkOk(res: Response): Promise<Response> {
   if (!res.ok) {
     const text = await res.text().catch(() => res.statusText)
-    throw new Error(text)
+    try {
+      const json = JSON.parse(text)
+      throw new Error(json.detail ?? text)
+    } catch {
+      throw new Error(text)
+    }
   }
   return res
 }

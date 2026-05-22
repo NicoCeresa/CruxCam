@@ -267,7 +267,9 @@ def get_status(job_id: str):
     if task.state == "SUCCESS":
         return {"status": "complete", "progress": 1.0}
     if task.state == "FAILURE":
-        return {"status": "failed", "error": str(task.info), "progress": 0.0}
+        err = task.info
+        msg = str(err).splitlines()[0] if err else "Processing failed"
+        return {"status": "failed", "error": msg, "progress": 0.0}
     return {"status": task.state.lower(), "progress": 0.0}
 
 

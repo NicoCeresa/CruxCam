@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { getResult, getStatus } from '../api'
 import type { AnalysisResult } from '../types'
 
@@ -17,6 +18,7 @@ interface Props {
 }
 
 export default function ProcessingView({ jobId, onComplete }: Props) {
+  const navigate = useNavigate()
   const [progress, setProgress]     = useState(0)
   const [statusText, setStatusText] = useState('Waiting for worker…')
   const [error, setError]           = useState<string | null>(null)
@@ -38,18 +40,33 @@ export default function ProcessingView({ jobId, onComplete }: Props) {
   // Polling — stable interval, only recreated if jobId changes
   useEffect(() => {
     let stopped = false
+    let lastProgress = -1
+    let lastProgressAt = Date.now()
+    let networkErrors = 0
+    const STALL_MS = 60_000
 
     const id = setInterval(async () => {
       if (stopped) return
       try {
         const status = await getStatus(jobId)
         if (stopped) return
+        networkErrors = 0
 
         if (status.status === 'pending') {
           setStatusText('Waiting for worker…')
+          lastProgressAt = Date.now()
           return
         }
         if (status.status === 'processing') {
+          if (status.progress !== lastProgress) {
+            lastProgress = status.progress
+            lastProgressAt = Date.now()
+          } else if (Date.now() - lastProgressAt > STALL_MS) {
+            stopped = true
+            clearInterval(id)
+            setError('Processing stalled — the worker may have run out of memory. Try a shorter clip.')
+            return
+          }
           setProgress(status.progress)
           return
         }
@@ -67,11 +84,14 @@ export default function ProcessingView({ jobId, onComplete }: Props) {
           setError(status.error ?? 'Processing failed')
         }
       } catch (e) {
-        stopped = true
-        clearInterval(id)
-        setError(e instanceof Error ? e.message : 'Connection error')
+        networkErrors++
+        if (networkErrors >= 3) {
+          stopped = true
+          clearInterval(id)
+          setError('Connection lost — check your network and try again.')
+        }
       }
-    }, 100)
+    }, 1000)
 
     return () => {
       stopped = true
@@ -82,8 +102,8 @@ export default function ProcessingView({ jobId, onComplete }: Props) {
   if (error) {
     return (
       <div className="max-w-md mx-auto text-center space-y-4 py-20">
-        <p className="text-red-400">{error}</p>
-        <button className="btn-ghost" onClick={() => window.location.reload()}>
+        <p className="text-red-400 text-sm">{error}</p>
+        <button className="btn-ghost" onClick={() => navigate('/')}>
           Try again
         </button>
       </div>

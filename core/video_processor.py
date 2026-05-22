@@ -78,6 +78,8 @@ class VideoProcessor:
         reader_exc: list = [None]
         writer_exc: list = [None]
 
+        actual_frames_read: list = [0]
+
         def _reader():
             try:
                 cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
@@ -86,6 +88,7 @@ class VideoProcessor:
                     if not ok:
                         break
                     frame_q.put(frame)
+                    actual_frames_read[0] += 1
             except Exception as exc:
                 reader_exc[0] = exc
             finally:
@@ -136,7 +139,8 @@ class VideoProcessor:
 
                 frame_count += 1
                 if progress_callback:
-                    progress_callback(frame_count, total_frames)
+                    real_total = actual_frames_read[0] or total_frames
+                    progress_callback(min(frame_count, real_total), real_total)
 
         finally:
             write_q.put(_DONE)
