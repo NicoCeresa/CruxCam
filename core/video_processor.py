@@ -155,11 +155,17 @@ class VideoProcessor:
         if writer_exc[0]:
             raise writer_exc[0]
         
-        import subprocess
-        subprocess.run(
-            ['ffmpeg', '-y', '-i', tmp_output, '-c:v', 'libx264', '-preset', 'fast', '-crf', '23', output_path],
-            check=True, capture_output=True,
+        import subprocess, shutil
+        ffmpeg = shutil.which('ffmpeg') or 'ffmpeg'
+        result = subprocess.run(
+            [ffmpeg, '-y', '-i', tmp_output, '-c:v', 'libx264', '-preset', 'fast', '-crf', '23', output_path],
+            capture_output=True,
         )
+        if result.returncode != 0:
+            raise RuntimeError(
+                f"ffmpeg failed (exit {result.returncode}): "
+                f"{result.stderr.decode(errors='replace').strip()}"
+            )
         Path(tmp_output).unlink(missing_ok=True)
 
         total = good_frames + bad_frames

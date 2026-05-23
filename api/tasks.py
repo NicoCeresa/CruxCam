@@ -1,9 +1,14 @@
+import logging
 from pathlib import Path
 from typing import Optional
+
 import numpy as np
+
 from .celery_app import celery_app
 from core.pose_analyzer import AnalysisResult, PoseAnalyzer
 from core.video_processor import VideoProcessor
+
+log = logging.getLogger(__name__)
 
 # Cached per worker process — keeps the MediaPipe Pose model loaded across tasks.
 _processor: Optional[VideoProcessor] = None
@@ -67,6 +72,8 @@ def process_video_task(
 ) -> dict:
     global _processor
 
+    log.info("task start  input=%s  exists=%s", input_path, Path(input_path).exists())
+
     if _processor is None:
         _processor = VideoProcessor(PoseAnalyzer(angle_threshold=angle_threshold))
     else:
@@ -78,6 +85,10 @@ def process_video_task(
             meta={"current": current, "total": total},
         )
 
+    input_file = Path(input_path)
+    if not input_file.exists():
+        raise FileNotFoundError(f"Input file missing before task start: {input_path}")
+
     try:
         result = _processor.process_video(
             input_path, output_path,
@@ -86,6 +97,11 @@ def process_video_task(
             end_frame=end_frame,
             frame_skip=frame_skip,
         )
-        return serialize_result(result)
-    finally:
-        Path(input_path).unlink(missing_ok=True)
+        serialized = serialize_result(result)
+        # Delete only after result is serialized — prevents re-queued retries
+        # (task_acks_late=True) from failing with a missing file on the second run.
+        input_file.unlink(missing_ok=True)
+        return serialized
+    except Exception:
+        input_file.unlink(missing_ok=True)
+        raise

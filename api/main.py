@@ -241,6 +241,11 @@ async def upload_video(
     with open(input_path, "wb") as f:
         shutil.copyfileobj(video.file, f)
 
+    if input_path.stat().st_size == 0:
+        input_path.unlink(missing_ok=True)
+        output_path.unlink(missing_ok=True)
+        raise HTTPException(status_code=400, detail="Uploaded file is empty")
+
     if preview_id:
         p = _preview_paths.pop(preview_id, None)
         if p:

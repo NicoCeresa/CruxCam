@@ -24,7 +24,7 @@ function FrameThumb({ src }: { src: string }) {
     <img
       src={src}
       alt=""
-      className="w-16 h-12 object-cover border border-navy-lighter flex-shrink-0"
+      className="w-28 h-20 object-cover border border-navy-lighter flex-shrink-0"
     />
   )
 }

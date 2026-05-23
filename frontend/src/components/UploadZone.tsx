@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState } from 'react'
 import { getSampleInfo, getVideoInfo, uploadSample, uploadVideo } from '../api'
 import TrimControls from './TrimControls'
+import { isToooDark } from '../utils/checkBrightness'
 import type { VideoInfo } from '../types'
 
 interface Props {
@@ -20,18 +21,22 @@ export default function UploadZone({ onJobStart }: Props) {
   const [angleThreshold, setAngleThreshold] = useState(90)
   const [trimStart, setTrimStart] = useState(0)
   const [trimEnd, setTrimEnd] = useState(0)
+  const [darkWarning, setDarkWarning] = useState(false)
 
   const inputRef = useRef<HTMLInputElement>(null)
 
   async function loadFile(f: File) {
     setFile(f)
     setError(null)
+    setDarkWarning(false)
     setLoading(true)
     try {
       const i = await getVideoInfo(f)
       setInfo(i)
       setTrimStart(0)
       setTrimEnd(i.total_frames - 1)
+      const dark = await isToooDark(i.preview_id, i.total_frames)
+      setDarkWarning(dark)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to read video')
       setFile(null)
@@ -191,6 +196,14 @@ export default function UploadZone({ onJobStart }: Props) {
             end={trimEnd}
             onChange={(s, e) => { setTrimStart(s); setTrimEnd(e) }}
           />
+        </div>
+      )}
+
+      {/* Brightness warning */}
+      {darkWarning && (
+        <div className="border border-yellow-500/40 bg-yellow-500/10 px-4 py-3 text-yellow-400 text-xs font-body flex items-start gap-2">
+          <span className="flex-shrink-0">⚠</span>
+          <span>This video appears dark — pose detection may be less accurate. Improving lighting before recording will give better results.</span>
         </div>
       )}
 

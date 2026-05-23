@@ -97,7 +97,7 @@ docker compose up --build
 cd frontend && npm run dev
 ```
 
-**Option B — manually, four terminals**
+**Option B — manually, five terminals**
 
 ```bash
 # 1. Redis
@@ -106,10 +106,13 @@ redis-server
 # 2. FastAPI
 uvicorn api.main:app --reload
 
-# 3. Celery worker (--pool=solo required on macOS)
-celery -A api.celery_app worker --loglevel=info --pool=solo
+# 3. Celery worker 1 (--pool=solo required on macOS)
+celery -A api.celery_app worker --loglevel=info --pool=solo -n worker1@%h
 
-# 4. React frontend
+# 4. Celery worker 2 (needed for compare mode — processes both videos in parallel)
+celery -A api.celery_app worker --loglevel=info --pool=solo -n worker2@%h
+
+# 5. React frontend
 cd frontend && npm run dev
 ```
 
