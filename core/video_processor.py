@@ -1,6 +1,8 @@
 """Video processing utilities for CruxCam."""
 import cv2
 import queue
+import shutil
+import subprocess
 import tempfile
 import threading
 from pathlib import Path
@@ -10,11 +12,11 @@ from .pose_analyzer import PoseAnalyzer, AnalysisResult
 
 
 class VideoProcessor:
-    
+
     def __init__(self, pose_analyzer: Optional[PoseAnalyzer] = None):
         self.pose_analyzer = pose_analyzer or PoseAnalyzer()
         self._pose = mp.solutions.pose.Pose()
-        
+
     def process_video(
         self,
         input_path: str,
@@ -24,60 +26,37 @@ class VideoProcessor:
         end_frame: Optional[int] = None,
         frame_skip: int = 1,
     ) -> AnalysisResult:
-        """
-        Process video file and analyze climbing efficiency.
-        
-        Args:
-            input_path: Path to input video file
-            output_path: Path for output video (optional, creates temp if None)
-            progress_callback: Function called with (current_frame, total_frames)
-            
-        Returns:
-            AnalysisResult with statistics and output path
-        """
         if not Path(input_path).exists():
             raise FileNotFoundError(f"Input video not found: {input_path}")
-        
+
         cap = cv2.VideoCapture(input_path)
         if not cap.isOpened():
             raise RuntimeError(f"Could not open video file: {input_path}")
-        
-        fps = int(cap.get(cv2.CAP_PROP_FPS))
-        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        raw_total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
 
-        start_frame = max(0, start_frame)
-        end_frame = min(end_frame, raw_total) if end_frame is not None else raw_total
+        fps        = int(cap.get(cv2.CAP_PROP_FPS))
+        raw_total  = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+
+        start_frame  = max(0, start_frame)
+        end_frame    = min(end_frame, raw_total) if end_frame is not None else raw_total
         total_frames = end_frame - start_frame
-        
+
         if output_path is None:
-            temp_file = tempfile.NamedTemporaryFile(
-                delete=False, suffix='.mp4', prefix='cruxcam_'
-            )
-            output_path = temp_file.name
-            temp_file.close()
-        
-        # Write raw frames with mp4v, then re-encode to H.264 via ffmpeg for browser compatibility
-        tmp_output = output_path.replace('.mp4', '_raw.mp4')
-        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-        out = cv2.VideoWriter(tmp_output, fourcc, fps, (width, height))
-        
+            tmp = tempfile.NamedTemporaryFile(delete=False, suffix='.mp4', prefix='cruxcam_')
+            output_path = tmp.name
+            tmp.close()
+
         self.pose_analyzer.reset()
 
         good_frames = 0
-        bad_frames = 0
+        bad_frames  = 0
         frame_count = 0
         pose_data_3d = []
 
-        # Pipeline: reader thread → frame_q → inference (main) → write_q → writer thread
-        # Overlaps disk I/O with pose inference so reads and writes don't stall the CPU.
+        # Reader thread overlaps disk I/O with inference.
+        # No writer thread — output is produced by ffmpeg after inference completes.
         _DONE = object()
-        frame_q = queue.Queue(maxsize=8)
-        write_q = queue.Queue(maxsize=8)
+        frame_q    = queue.Queue(maxsize=4)
         reader_exc: list = [None]
-        writer_exc: list = [None]
-
         actual_frames_read: list = [0]
 
         def _reader():
@@ -94,20 +73,8 @@ class VideoProcessor:
             finally:
                 frame_q.put(_DONE)
 
-        def _writer():
-            try:
-                while True:
-                    item = write_q.get()
-                    if item is _DONE:
-                        break
-                    out.write(item)
-            except Exception as exc:
-                writer_exc[0] = exc
-
         reader_thread = threading.Thread(target=_reader, daemon=True)
-        writer_thread = threading.Thread(target=_writer, daemon=True)
         reader_thread.start()
-        writer_thread.start()
 
         try:
             while True:
@@ -135,40 +102,33 @@ class VideoProcessor:
                             self.pose_analyzer.com_3d
                         ))
 
-                if writer_exc[0]:
-                    raise writer_exc[0]
-                try:
-                    write_q.put(frame, timeout=30)
-                except queue.Full:
-                    if writer_exc[0]:
-                        raise writer_exc[0]
-                    raise RuntimeError("Writer thread stalled for 30 seconds")
-
                 frame_count += 1
                 if progress_callback and frame_count % 10 == 0:
                     real_total = actual_frames_read[0] or total_frames
                     progress_callback(min(frame_count, real_total), real_total)
 
         finally:
-            try:
-                write_q.put(_DONE, timeout=5)
-            except queue.Full:
-                pass
             cap.release()
 
         if reader_exc[0]:
             raise reader_exc[0]
 
-        writer_thread.join()
-        out.release()
+        reader_thread.join()
 
-        if writer_exc[0]:
-            raise writer_exc[0]
-        
-        import subprocess, shutil
+        # Trim + re-encode with ffmpeg. Since no annotations are drawn on frames,
+        # the output is just a browser-compatible slice of the input.
         ffmpeg = shutil.which('ffmpeg') or 'ffmpeg'
+        start_secs   = start_frame / max(fps, 1)
+        duration_secs = total_frames / max(fps, 1)
         result = subprocess.run(
-            [ffmpeg, '-y', '-i', tmp_output, '-c:v', 'libx264', '-preset', 'fast', '-crf', '23', output_path],
+            [
+                ffmpeg, '-y',
+                '-ss', str(start_secs),
+                '-i', input_path,
+                '-t', str(duration_secs),
+                '-c:v', 'libx264', '-preset', 'fast', '-crf', '23',
+                output_path,
+            ],
             capture_output=True,
         )
         if result.returncode != 0:
@@ -176,9 +136,8 @@ class VideoProcessor:
                 f"ffmpeg failed (exit {result.returncode}): "
                 f"{result.stderr.decode(errors='replace').strip()}"
             )
-        Path(tmp_output).unlink(missing_ok=True)
 
-        total = good_frames + bad_frames
+        total      = good_frames + bad_frames
         efficiency = (good_frames / total * 100.0) if total > 0 else 0.0
 
         return AnalysisResult(
@@ -189,21 +148,11 @@ class VideoProcessor:
             processed_video_path=output_path,
             pose_data_3d=pose_data_3d if pose_data_3d else None
         )
-    
+
     def get_video_info(self, video_path: str) -> dict:
-        """
-        Get metadata about a video file.
-        
-        Args:
-            video_path: Path to video file
-            
-        Returns:
-            Dictionary with video metadata
-        """
         cap = cv2.VideoCapture(video_path)
         if not cap.isOpened():
             raise RuntimeError(f"Could not open video file: {video_path}")
-        
         info = {
             'fps': int(cap.get(cv2.CAP_PROP_FPS)),
             'width': int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)),
@@ -211,45 +160,31 @@ class VideoProcessor:
             'total_frames': int(cap.get(cv2.CAP_PROP_FRAME_COUNT)),
             'duration': int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) / int(cap.get(cv2.CAP_PROP_FPS))
         }
-        
         cap.release()
         return info
-    
+
     def extract_frames(
         self,
         video_path: str,
         max_frames: int = 10
     ) -> Generator[tuple, None, None]:
-        """
-        Extract frames from video for preview.
-        
-        Args:
-            video_path: Path to video file
-            max_frames: Maximum number of frames to extract
-            
-        Yields:
-            Tuples of (frame_number, frame_image)
-        """
         cap = cv2.VideoCapture(video_path)
         if not cap.isOpened():
             raise RuntimeError(f"Could not open video file: {video_path}")
-        
+
         total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         step = max(1, total_frames // max_frames)
-        
         frame_num = 0
         extracted = 0
-        
+
         try:
             while cap.isOpened() and extracted < max_frames:
                 success, frame = cap.read()
                 if not success:
                     break
-                
                 if frame_num % step == 0:
                     yield (frame_num, frame)
                     extracted += 1
-                
                 frame_num += 1
         finally:
             cap.release()

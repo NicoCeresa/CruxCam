@@ -1,5 +1,4 @@
 import logging
-import threading
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -9,16 +8,6 @@ from core.pose_analyzer import AnalysisResult, PoseAnalyzer
 from core.video_processor import VideoProcessor
 
 log = logging.getLogger(__name__)
-
-_thread_local = threading.local()
-
-
-def _get_processor(angle_threshold: int) -> VideoProcessor:
-    if not hasattr(_thread_local, "processor") or _thread_local.processor is None:
-        _thread_local.processor = VideoProcessor(PoseAnalyzer(angle_threshold=angle_threshold))
-    else:
-        _thread_local.processor.pose_analyzer.angle_threshold = angle_threshold
-    return _thread_local.processor
 
 
 def serialize_result(result: AnalysisResult) -> dict:
@@ -75,7 +64,6 @@ def process_video(
     frame_skip: int,
     set_state: Callable[[str, dict], None],
 ) -> None:
-    """Run video processing in a background thread, writing state via set_state."""
     log.info("job start  id=%s  input=%s  exists=%s", job_id, input_path, Path(input_path).exists())
     input_file = Path(input_path)
 
@@ -83,7 +71,8 @@ def process_video(
         set_state(job_id, {"status": "failed", "error": f"Input file missing: {input_path}"})
         return
 
-    processor = _get_processor(angle_threshold)
+    # Create a fresh processor per job — model is loaded here and released in finally.
+    processor = VideoProcessor(PoseAnalyzer(angle_threshold=angle_threshold))
 
     def _progress(current: int, total: int) -> None:
         set_state(job_id, {"status": "processing", "current": current, "total": total})
@@ -103,3 +92,9 @@ def process_video(
         input_file.unlink(missing_ok=True)
         log.exception("job failed  id=%s", job_id)
         set_state(job_id, {"status": "failed", "error": str(exc).splitlines()[0]})
+    finally:
+        # Explicitly close MediaPipe to release native memory immediately.
+        try:
+            processor._pose.close()
+        except Exception:
+            pass
