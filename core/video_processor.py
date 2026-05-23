@@ -135,7 +135,14 @@ class VideoProcessor:
                             self.pose_analyzer.com_3d
                         ))
 
-                write_q.put(frame)
+                if writer_exc[0]:
+                    raise writer_exc[0]
+                try:
+                    write_q.put(frame, timeout=30)
+                except queue.Full:
+                    if writer_exc[0]:
+                        raise writer_exc[0]
+                    raise RuntimeError("Writer thread stalled for 30 seconds")
 
                 frame_count += 1
                 if progress_callback and frame_count % 10 == 0:
@@ -143,7 +150,10 @@ class VideoProcessor:
                     progress_callback(min(frame_count, real_total), real_total)
 
         finally:
-            write_q.put(_DONE)
+            try:
+                write_q.put(_DONE, timeout=5)
+            except queue.Full:
+                pass
             cap.release()
 
         if reader_exc[0]:
