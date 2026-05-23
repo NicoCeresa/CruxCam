@@ -23,7 +23,7 @@ export default function HomePage() {
 
       {/* What you can do */}
       <section className="py-12 space-y-8">
-        <p className="font-display tracking-widest uppercase text-cream/40 text-xs">What you can do</p>
+        <p className="font-display tracking-widest uppercase text-cream/70 text-sm">What you can do</p>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div className="card p-8 space-y-4 flex flex-col">
             <h2 className="font-display tracking-widest uppercase text-terracotta text-xl">Analyze</h2>
@@ -50,7 +50,7 @@ export default function HomePage() {
 
       {/* How it works */}
       <section className="py-12 space-y-8">
-        <p className="font-display tracking-widest uppercase text-cream/40 text-xs">How it works</p>
+        <p className="font-display tracking-widest uppercase text-cream/70 text-sm">How it works</p>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           {[
             {
@@ -83,7 +83,7 @@ export default function HomePage() {
 
       {/* About Me */}
       <section className="py-12 space-y-6">
-        <p className="font-display tracking-widest uppercase text-cream/40 text-xs">About me</p>
+        <p className="font-display tracking-widest uppercase text-cream/70 text-sm">About me</p>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
           <div className="space-y-4">
             <p className="text-cream/70 text-sm leading-relaxed">
@@ -98,7 +98,7 @@ export default function HomePage() {
             </p>
           </div>
           <div className="space-y-4">
-            <p className="font-display tracking-widest uppercase text-cream/40 text-xs">Stack</p>
+            <p className="font-display tracking-widest uppercase text-cream/70 text-sm">Stack</p>
             <div className="flex flex-wrap gap-2">
               {[
                 'MediaPipe', 'OpenCV', 'FastAPI', 'Celery', 'Redis',
