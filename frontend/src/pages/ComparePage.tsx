@@ -21,6 +21,8 @@ function JobProgressBar({ job, label }: { job: JobState; label: string }) {
         <span className="text-cream/60 font-body tracking-wider uppercase">{label}</span>
         {job.error ? (
           <span className="text-red-400 font-body">{job.error}</span>
+        ) : job.progress >= 1 && !job.done ? (
+          <span className="text-cream/40">Finalizing…</span>
         ) : (
           <span className="text-cream/40 tabular-nums">{Math.round(job.progress * 100)}%</span>
         )}
@@ -103,9 +105,10 @@ export default function ComparePage() {
           getStatus(a.jobId)
             .then(async status => {
               if (status.status === 'complete') {
+                setJobA(j => ({ ...j, progress: 1 }))
                 const result = await getResult(a.jobId!)
                 aRef.current?.showResults(result, a.jobId!)
-                setJobA(j => ({ ...j, progress: 1, done: true }))
+                setJobA(j => ({ ...j, done: true }))
               } else if (status.status === 'failed') {
                 setJobA(j => ({ ...j, error: status.error ?? 'Processing failed', done: true }))
               } else {
@@ -123,9 +126,10 @@ export default function ComparePage() {
           getStatus(b.jobId)
             .then(async status => {
               if (status.status === 'complete') {
+                setJobB(j => ({ ...j, progress: 1 }))
                 const result = await getResult(b.jobId!)
                 bRef.current?.showResults(result, b.jobId!)
-                setJobB(j => ({ ...j, progress: 1, done: true }))
+                setJobB(j => ({ ...j, done: true }))
               } else if (status.status === 'failed') {
                 setJobB(j => ({ ...j, error: status.error ?? 'Processing failed', done: true }))
               } else {
@@ -146,10 +150,9 @@ export default function ComparePage() {
     return () => clearInterval(id)
   }, [pagePhase])
 
-  // Transition to done once both jobs finish.
-  // Guard against firing before uploads resolve: while all jobIds are null and there
-  // are no errors, uploads are still in-flight — !null === true would falsely mark
-  // both jobs as done and skip the processing panel entirely.
+  // Transition to done once all submitted jobs finish successfully.
+  // Guard 1: don't fire before uploads resolve (jobIds still null = still in-flight).
+  // Guard 2: if every submitted job failed, stay in 'analyzing' so error bars are visible.
   useEffect(() => {
     if (pagePhase !== 'analyzing') return
     const anyDispatched =
@@ -158,7 +161,10 @@ export default function ComparePage() {
     if (!anyDispatched) return
     const aDone = !jobA.jobId || jobA.done
     const bDone = !jobB.jobId || jobB.done
-    if (aDone && bDone) setPagePhase('done')
+    if (!aDone || !bDone) return
+    const anySuccess = (jobA.jobId !== null && !jobA.error) || (jobB.jobId !== null && !jobB.error)
+    if (anySuccess) setPagePhase('done')
+    // All failed → stay in 'analyzing' so error bars remain visible
   }, [pagePhase, jobA, jobB])
 
   function handleReset() {
@@ -184,20 +190,41 @@ export default function ComparePage() {
       </div>
 
       {/* Processing panel */}
-      {pagePhase === 'analyzing' && (
-        <div className="card p-8 space-y-6 max-w-md mx-auto">
-          <div className="text-center space-y-2">
-            <div className="font-display text-2xl tracking-widest uppercase text-cream">
-              Analyzing Footage
+      {pagePhase === 'analyzing' && (() => {
+        const allFailed =
+          (jobA.error !== null || jobB.error !== null) &&
+          (!jobA.jobId || jobA.done) && (!jobB.jobId || jobB.done) &&
+          !((jobA.jobId !== null && !jobA.error) || (jobB.jobId !== null && !jobB.error))
+        const allFinalizing =
+          !allFailed &&
+          (!jobA.jobId || jobA.progress >= 1) &&
+          (!jobB.jobId || jobB.progress >= 1)
+        return (
+          <div className="card p-8 space-y-6 max-w-md mx-auto">
+            <div className="text-center space-y-2">
+              <div className="font-display text-2xl tracking-widest uppercase text-cream">
+                {allFailed ? 'Upload Failed' : 'Analyzing Footage'}
+              </div>
+              <p className="text-cream/40 text-sm font-body">
+                {allFailed
+                  ? 'Could not start processing — re-drop your videos and try again.'
+                  : allFinalizing
+                  ? 'Downloading results…'
+                  : 'Processing both videos in parallel…'}
+              </p>
             </div>
-            <p className="text-cream/40 text-sm font-body">Processing both videos in parallel…</p>
+            <div className="space-y-5">
+              <JobProgressBar job={jobA} label="Video A" />
+              <JobProgressBar job={jobB} label="Video B" />
+            </div>
+            {allFailed && (
+              <button className="btn-ghost w-full" onClick={handleReset}>
+                Try Again
+              </button>
+            )}
           </div>
-          <div className="space-y-5">
-            <JobProgressBar job={jobA} label="Video A" />
-            <JobProgressBar job={jobB} label="Video B" />
-          </div>
-        </div>
-      )}
+        )
+      })()}
 
       {/* Columns — always mounted; hidden while analyzing to preserve component state */}
       <div className={`grid grid-cols-1 md:grid-cols-2 gap-8 ${pagePhase === 'analyzing' ? 'hidden' : ''}`}>
