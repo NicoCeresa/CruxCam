@@ -113,6 +113,29 @@ export default function HomePage() {
         </div>
       </section>
 
+      <div className="border-t border-cream/10" />
+
+      {/* Contact */}
+      <section className="py-12 space-y-6">
+        <p className="font-display tracking-widest uppercase text-cream text-2xl">Contact</p>
+        <div className="flex flex-col sm:flex-row gap-6">
+          <a
+            href="mailto:ceresanico@gmail.com"
+            className="text-cream/70 text-sm font-body hover:text-cream transition-colors"
+          >
+            ceresanico@gmail.com
+          </a>
+          <a
+            href="https://github.com/NicoCeresa/CruxCam"
+            target="_blank"
+            rel="noreferrer"
+            className="text-cream/70 text-sm font-body hover:text-cream transition-colors"
+          >
+            github.com/NicoCeresa/CruxCam
+          </a>
+        </div>
+      </section>
+
     </div>
   )
 }
