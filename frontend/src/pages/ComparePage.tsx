@@ -58,6 +58,8 @@ export default function ComparePage() {
   // Refs mirror state so polling closure always sees current values
   const jobARef = useRef<JobState>(INIT_JOB)
   const jobBRef = useRef<JobState>(INIT_JOB)
+  // Tracks job IDs currently downloading results — prevents duplicate getResult calls
+  const fetchingRef = useRef(new Set<string>())
 
   useEffect(() => { jobARef.current = jobA }, [jobA])
   useEffect(() => { jobBRef.current = jobB }, [jobB])
@@ -108,15 +110,20 @@ export default function ComparePage() {
       const b = jobBRef.current
       const polls: Promise<void>[] = []
 
-      if (a.jobId && !a.done) {
+      if (a.jobId && !a.done && !fetchingRef.current.has(a.jobId)) {
         polls.push(
           getStatus(a.jobId)
             .then(async status => {
               if (status.status === 'complete') {
+                fetchingRef.current.add(a.jobId!)
                 setJobA(j => ({ ...j, progress: 1 }))
-                const result = await getResult(a.jobId!)
-                aRef.current?.showResults(result, a.jobId!)
-                setJobA(j => ({ ...j, done: true }))
+                try {
+                  const result = await getResult(a.jobId!)
+                  aRef.current?.showResults(result, a.jobId!)
+                  setJobA(j => ({ ...j, done: true }))
+                } finally {
+                  fetchingRef.current.delete(a.jobId!)
+                }
               } else if (status.status === 'failed') {
                 setJobA(j => ({ ...j, error: status.error ?? 'Processing failed', done: true }))
               } else {
@@ -129,15 +136,20 @@ export default function ComparePage() {
         )
       }
 
-      if (b.jobId && !b.done) {
+      if (b.jobId && !b.done && !fetchingRef.current.has(b.jobId)) {
         polls.push(
           getStatus(b.jobId)
             .then(async status => {
               if (status.status === 'complete') {
+                fetchingRef.current.add(b.jobId!)
                 setJobB(j => ({ ...j, progress: 1 }))
-                const result = await getResult(b.jobId!)
-                bRef.current?.showResults(result, b.jobId!)
-                setJobB(j => ({ ...j, done: true }))
+                try {
+                  const result = await getResult(b.jobId!)
+                  bRef.current?.showResults(result, b.jobId!)
+                  setJobB(j => ({ ...j, done: true }))
+                } finally {
+                  fetchingRef.current.delete(b.jobId!)
+                }
               } else if (status.status === 'failed') {
                 setJobB(j => ({ ...j, error: status.error ?? 'Processing failed', done: true }))
               } else {

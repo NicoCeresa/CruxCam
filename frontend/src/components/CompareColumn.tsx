@@ -51,6 +51,7 @@ const CompareColumn = forwardRef<CompareColumnHandle, Props>(function CompareCol
   const [result, setResult] = useState<AnalysisResult | null>(null)
   const [jobId, setJobId]   = useState<string | null>(null)
 
+  const [loading, setLoading]               = useState(false)
   const [error, setError]                   = useState<string | null>(null)
   const [darkWarning, setDarkWarning]       = useState(false)
   const [dragging, setDragging]             = useState(false)
@@ -71,6 +72,7 @@ const CompareColumn = forwardRef<CompareColumnHandle, Props>(function CompareCol
     setFile(f)
     setError(null)
     setDarkWarning(false)
+    setLoading(true)
     try {
       const i = await getVideoInfo(f)
       setInfo(i)
@@ -82,6 +84,8 @@ const CompareColumn = forwardRef<CompareColumnHandle, Props>(function CompareCol
       setError(e instanceof Error ? e.message : 'Failed to read video')
       setFile(null)
       setInfo(null)
+    } finally {
+      setLoading(false)
     }
   }
 
@@ -221,6 +225,14 @@ const CompareColumn = forwardRef<CompareColumnHandle, Props>(function CompareCol
             </div>
           )}
         </div>
+
+        {loading && (
+          <div className="card p-4 space-y-4 animate-pulse">
+            <div className="h-3 bg-cream/10 rounded w-1/4" />
+            <div className="h-2 bg-cream/10 rounded w-full" />
+            <div className="h-20 bg-cream/10 rounded w-full" />
+          </div>
+        )}
 
         {info && (
           <div className="card p-4 space-y-4">

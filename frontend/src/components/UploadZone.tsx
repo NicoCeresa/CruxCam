@@ -158,6 +158,16 @@ export default function UploadZone({ onJobStart }: Props) {
         </div>
       )}
 
+      {/* Loading skeleton while video info is being read */}
+      {loading && !info && (
+        <div className="card p-6 space-y-6 animate-pulse">
+          <div className="h-3 bg-cream/10 rounded w-1/4" />
+          <div className="h-2 bg-cream/10 rounded w-full" />
+          <div className="border-t border-navy-lighter" />
+          <div className="h-24 bg-cream/10 rounded w-full" />
+        </div>
+      )}
+
       {/* Controls — only shown after info loads */}
       {info && (
         <div className="card p-6 space-y-6">
