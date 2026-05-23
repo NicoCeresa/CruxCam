@@ -13,10 +13,6 @@ export default function HomePage() {
           CruxCam uses computer vision to analyze your climbing technique,
           frame by frame, in 3D.
         </p>
-        <div className="flex items-center justify-center gap-4">
-          <Link to="/analyze" className="btn-primary">Analyze Footage</Link>
-          <Link to="/compare" className="btn-ghost">Compare Clips</Link>
-        </div>
       </section>
 
       <div className="border-t border-cream/10" />
