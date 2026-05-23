@@ -304,6 +304,7 @@ const CompareColumn = forwardRef<CompareColumnHandle, Props>(function CompareCol
           className="w-full h-full object-contain bg-black"
           preload="auto"
           playsInline
+          muted
         />
       </div>
 

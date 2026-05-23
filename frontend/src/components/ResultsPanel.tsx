@@ -155,6 +155,7 @@ export default function ResultsPanel({ result, videoInfo, jobId, onReset }: Prop
             className="w-full h-full object-contain bg-black"
             preload="auto"
             playsInline
+            muted
           />
         </div>
 
