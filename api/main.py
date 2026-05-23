@@ -41,7 +41,7 @@ ALLOWED_EXTENSIONS = {".mp4", ".mov", ".avi", ".mkv", ".webm"}
 
 # ── Services ───────────────────────────────────────────────────────────────────
 _redis    = redis_lib.Redis.from_url(REDIS_URL, decode_responses=True)
-_executor = ThreadPoolExecutor(max_workers=2)
+_executor = ThreadPoolExecutor(max_workers=1)
 
 # ── State ──────────────────────────────────────────────────────────────────────
 _preview_paths: dict[str, Path] = {}
