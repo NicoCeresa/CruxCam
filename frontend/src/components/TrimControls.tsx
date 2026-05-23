@@ -19,13 +19,16 @@ function useDebounce<T>(value: T, delay: number): T {
   return debounced
 }
 
-function FrameThumb({ src }: { src: string }) {
+function FrameThumb({ src, label }: { src: string; label: string }) {
   return (
-    <img
-      src={src}
-      alt=""
-      className="w-28 h-20 object-cover border border-navy-lighter flex-shrink-0"
-    />
+    <div className="flex flex-col items-center gap-1">
+      <img
+        src={src}
+        alt=""
+        className="w-full aspect-video object-cover border border-navy-lighter"
+      />
+      <span className="text-xs text-cream/30 font-body">{label}</span>
+    </div>
   )
 }
 
@@ -58,46 +61,39 @@ export default function TrimControls({ previewId, totalFrames, fps, start, end, 
   }
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-3">
       <div className="flex items-center justify-between text-xs text-cream/50 font-body">
         <span>Trim</span>
         <span>{fmt(start)} – {fmt(end)}</span>
       </div>
 
-      <div className="flex items-center gap-3">
-        <FrameThumb src={startThumbUrl} />
-
-        {/* Dual-handle slider */}
-        <div className="range-track flex-1">
-          {/* Background track */}
-          <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-1.5 bg-navy-lighter rounded-full" />
-          {/* Selected range fill */}
-          <div
-            className="absolute top-1/2 -translate-y-1/2 h-1.5 bg-terracotta rounded-full"
-            style={{ left: `${startPct}%`, right: `${100 - endPct}%` }}
-          />
-          <input
-            type="range"
-            className="range-thumb"
-            min={0} max={max}
-            value={start}
-            onChange={handleStart}
-          />
-          <input
-            type="range"
-            className="range-thumb"
-            min={0} max={max}
-            value={end}
-            onChange={handleEnd}
-          />
-        </div>
-
-        <FrameThumb src={endThumbUrl} />
+      {/* Dual-handle slider */}
+      <div className="range-track">
+        <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-1.5 bg-navy-lighter rounded-full" />
+        <div
+          className="absolute top-1/2 -translate-y-1/2 h-1.5 bg-terracotta rounded-full"
+          style={{ left: `${startPct}%`, right: `${100 - endPct}%` }}
+        />
+        <input
+          type="range"
+          className="range-thumb"
+          min={0} max={max}
+          value={start}
+          onChange={handleStart}
+        />
+        <input
+          type="range"
+          className="range-thumb"
+          min={0} max={max}
+          value={end}
+          onChange={handleEnd}
+        />
       </div>
 
-      <div className="flex justify-between text-xs text-cream/30 font-body px-[76px]">
-        <span>Frame {start}</span>
-        <span>Frame {end}</span>
+      {/* Thumbnails below slider */}
+      <div className="grid grid-cols-2 gap-3">
+        <FrameThumb src={startThumbUrl} label={`Start · ${fmt(start)}`} />
+        <FrameThumb src={endThumbUrl}   label={`End · ${fmt(end)}`} />
       </div>
     </div>
   )
