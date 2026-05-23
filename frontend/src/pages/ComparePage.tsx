@@ -31,9 +31,9 @@ function JobProgressBar({ job, label }: { job: JobState; label: string }) {
           <span className="text-cream/40 tabular-nums">{Math.round(job.progress * 100)}%</span>
         )}
       </div>
-      <div className="h-1.5 bg-navy-lighter rounded-full overflow-hidden">
+      <div className="h-1.5 bg-navy-lighter rounded-full overflow-hidden relative">
         {indeterminate ? (
-          <div className="h-full w-1/3 rounded-full bg-terracotta animate-pulse" />
+          <div className="absolute h-full w-1/3 rounded-full bg-terracotta animate-bar-slide" />
         ) : (
           <div
             className={`h-full rounded-full transition-all duration-300 ${job.error ? 'bg-red-400' : 'bg-terracotta'}`}
