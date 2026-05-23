@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState } from 'react'
-import { getSampleInfo, getVideoInfo, uploadSample, uploadVideo } from '../api'
+import { getSampleInfo, getVideoInfo, submitPreview, uploadSample } from '../api'
 import TrimControls from './TrimControls'
 import { isToooDark } from '../utils/checkBrightness'
 import type { VideoInfo } from '../types'
@@ -81,7 +81,7 @@ export default function UploadZone({ onJobStart }: Props) {
     try {
       const jobId = useSample
         ? await uploadSample(info.preview_id, angleThreshold, trimStart, trimEnd)
-        : await uploadVideo(file!, info.preview_id, angleThreshold, trimStart, trimEnd)
+        : await submitPreview(info.preview_id, angleThreshold, trimStart, trimEnd)
       onJobStart(jobId, info)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Upload failed')

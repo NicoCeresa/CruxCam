@@ -74,6 +74,25 @@ export async function uploadVideo(
   return job_id as string
 }
 
+export async function submitPreview(
+  previewId: string,
+  angleThreshold: number,
+  startFrame: number,
+  endFrame: number,
+): Promise<string> {
+  const params = new URLSearchParams({
+    preview_id: previewId,
+    angle_threshold: String(angleThreshold),
+    start_frame: String(startFrame),
+    end_frame: String(endFrame),
+  })
+  const res = await checkOk(
+    await fetch(`${BASE}/submit?${params}`, { method: 'POST' }),
+  )
+  const { job_id } = await res.json()
+  return job_id as string
+}
+
 export async function getStatus(jobId: string): Promise<JobStatus> {
   const res = await checkOk(await fetch(`${BASE}/status/${jobId}`))
   return res.json()

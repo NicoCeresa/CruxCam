@@ -1,19 +1,10 @@
 import { forwardRef, lazy, Suspense, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react'
-import { getResult, getStatus, getVideoInfo, getVideoUrl, uploadVideo } from '../api'
+import { getVideoInfo, getVideoUrl } from '../api'
 import TrimControls from './TrimControls'
 import { isToooDark } from '../utils/checkBrightness'
 import type { AnalysisResult, PoseEntry, VideoInfo } from '../types'
 
 const Skeleton3D = lazy(() => import('./Skeleton3D'))
-
-const POLL_MESSAGES = [
-  'Reading the route…',
-  'Analyzing movement…',
-  'Mapping your beta…',
-  'Calculating efficiency…',
-  'Processing footage…',
-  'Tracking landmarks…',
-]
 
 function gradeLabel(efficiency: number): { label: string; color: string } {
   if (efficiency >= 70) return { label: 'Solid Form', color: 'text-forest-light' }
@@ -21,19 +12,26 @@ function gradeLabel(efficiency: number): { label: string; color: string } {
   return                       { label: 'Gripped',    color: 'text-red-400' }
 }
 
-type Phase = 'upload' | 'processing' | 'results'
-
 const ACCEPT = '.mp4,.mov,.avi,.mkv,video/*'
 
+export interface ColumnUploadArgs {
+  file: File
+  info: VideoInfo
+  angleThreshold: number
+  trimStart: number
+  trimEnd: number
+}
+
 export interface CompareColumnHandle {
-  submit: () => void
+  getUploadArgs: () => ColumnUploadArgs | null
+  showResults: (result: AnalysisResult, jobId: string) => void
+  reset: () => void
 }
 
 interface Props {
   label: string
   sharedPlaying: boolean
   onPause: () => void
-  onResultsReady: () => void
   onColumnReset: () => void
   onReadyChange: (ready: boolean) => void
 }
@@ -42,19 +40,17 @@ const CompareColumn = forwardRef<CompareColumnHandle, Props>(function CompareCol
   label,
   sharedPlaying,
   onPause,
-  onResultsReady,
   onColumnReset,
   onReadyChange,
 }, ref) {
-  // Lifecycle
+  type Phase = 'upload' | 'results'
+
   const [phase, setPhase]   = useState<Phase>('upload')
   const [file, setFile]     = useState<File | null>(null)
   const [info, setInfo]     = useState<VideoInfo | null>(null)
-  const [jobId, setJobId]   = useState<string | null>(null)
   const [result, setResult] = useState<AnalysisResult | null>(null)
+  const [jobId, setJobId]   = useState<string | null>(null)
 
-  // Upload
-  const [, setLoading]                       = useState(false)
   const [error, setError]                   = useState<string | null>(null)
   const [darkWarning, setDarkWarning]       = useState(false)
   const [dragging, setDragging]             = useState(false)
@@ -63,11 +59,6 @@ const CompareColumn = forwardRef<CompareColumnHandle, Props>(function CompareCol
   const [trimEnd, setTrimEnd]               = useState(0)
   const inputRef = useRef<HTMLInputElement>(null)
 
-  // Processing
-  const [progress, setProgress]     = useState(0)
-  const [statusText, setStatusText] = useState('Waiting for worker…')
-
-  // Playback
   const [currentFrame, setCurrentFrame] = useState(0)
   const videoRef = useRef<HTMLVideoElement>(null)
   const rafRef   = useRef<number | null>(null)
@@ -80,7 +71,6 @@ const CompareColumn = forwardRef<CompareColumnHandle, Props>(function CompareCol
     setFile(f)
     setError(null)
     setDarkWarning(false)
-    setLoading(true)
     try {
       const i = await getVideoInfo(f)
       setInfo(i)
@@ -92,8 +82,6 @@ const CompareColumn = forwardRef<CompareColumnHandle, Props>(function CompareCol
       setError(e instanceof Error ? e.message : 'Failed to read video')
       setFile(null)
       setInfo(null)
-    } finally {
-      setLoading(false)
     }
   }
 
@@ -104,124 +92,38 @@ const CompareColumn = forwardRef<CompareColumnHandle, Props>(function CompareCol
     if (f) loadFile(f)
   }, [])
 
-  async function handleSubmit() {
-    if (!file || !info || phase !== 'upload') return
-    setError(null)
-    setLoading(true)
-    try {
-      const id = await uploadVideo(file, info.preview_id, angleThreshold, trimStart, trimEnd)
-      setJobId(id)
-      setPhase('processing')
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Upload failed')
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  useImperativeHandle(ref, () => ({ submit: handleSubmit }))
-
-  // Notify parent when this column has a file ready to submit
   useEffect(() => {
     onReadyChange(phase === 'upload' && !!file && !!info)
   }, [phase, file, info])
 
-  function reset() {
-    if (rafRef.current !== null) { cancelAnimationFrame(rafRef.current); rafRef.current = null }
-    videoRef.current?.pause()
-    setPhase('upload')
-    setFile(null)
-    setInfo(null)
-    setJobId(null)
-    setResult(null)
-    setProgress(0)
-    setCurrentFrame(0)
-    setError(null)
-    onColumnReset()
-  }
+  // ── Imperative handle ─────────────────────────────────────────────────────
 
-  // ── Processing (inline polling) ───────────────────────────────────────────
+  useImperativeHandle(ref, () => ({
+    getUploadArgs: () => {
+      if (!file || !info || phase !== 'upload') return null
+      return { file, info, angleThreshold, trimStart, trimEnd }
+    },
+    showResults: (res: AnalysisResult, id: string) => {
+      setResult(res)
+      setJobId(id)
+      setPhase('results')
+    },
+    reset: () => {
+      if (rafRef.current !== null) { cancelAnimationFrame(rafRef.current); rafRef.current = null }
+      videoRef.current?.pause()
+      setPhase('upload')
+      setFile(null)
+      setInfo(null)
+      setResult(null)
+      setJobId(null)
+      setCurrentFrame(0)
+      setError(null)
+      setDarkWarning(false)
+      onColumnReset()
+    },
+  }))
 
-  useEffect(() => {
-    if (phase !== 'processing' || !jobId) return
-
-    let stopped = false
-    let lastProgress = -1
-    let lastProgressAt = Date.now()
-    let networkErrors = 0
-    const STALL_MS = 60_000
-    let msgIdx = 0
-
-    const msgId = setInterval(() => {
-      msgIdx = (msgIdx + 1) % POLL_MESSAGES.length
-      setStatusText(POLL_MESSAGES[msgIdx])
-    }, 2500)
-
-    const pollId = setInterval(async () => {
-      if (stopped) return
-      try {
-        const status = await getStatus(jobId)
-        if (stopped) return
-        networkErrors = 0
-
-        if (status.status === 'pending') {
-          setStatusText('Waiting for worker…')
-          lastProgressAt = Date.now()
-          return
-        }
-        if (status.status === 'processing') {
-          if (status.progress !== lastProgress) {
-            lastProgress = status.progress
-            lastProgressAt = Date.now()
-          } else if (Date.now() - lastProgressAt > STALL_MS) {
-            stopped = true
-            clearInterval(pollId)
-            clearInterval(msgId)
-            setError('Processing stalled — try a shorter clip.')
-            setPhase('upload')
-            return
-          }
-          setProgress(status.progress)
-          return
-        }
-        if (status.status === 'complete') {
-          stopped = true
-          clearInterval(pollId)
-          clearInterval(msgId)
-          setProgress(1)
-          const res = await getResult(jobId)
-          setResult(res)
-          setPhase('results')
-          onResultsReady()
-          return
-        }
-        if (status.status === 'failed') {
-          stopped = true
-          clearInterval(pollId)
-          clearInterval(msgId)
-          setError(status.error ?? 'Processing failed')
-          setPhase('upload')
-        }
-      } catch {
-        networkErrors++
-        if (networkErrors >= 3) {
-          stopped = true
-          clearInterval(pollId)
-          clearInterval(msgId)
-          setError('Connection lost — check your network and try again.')
-          setPhase('upload')
-        }
-      }
-    }, 1000)
-
-    return () => {
-      stopped = true
-      clearInterval(pollId)
-      clearInterval(msgId)
-    }
-  }, [phase, jobId])
-
-  // ── Respond to shared play/pause ──────────────────────────────────────────
+  // ── Playback ──────────────────────────────────────────────────────────────
 
   useEffect(() => {
     if (phase !== 'results') return
@@ -245,8 +147,6 @@ const CompareColumn = forwardRef<CompareColumnHandle, Props>(function CompareCol
     }
   }, [sharedPlaying, phase, safeFps])
 
-  // ── Scrubbing — seek immediately and tell parent to pause ─────────────────
-
   function handleScrub(frame: number) {
     videoRef.current?.pause()
     if (rafRef.current !== null) { cancelAnimationFrame(rafRef.current); rafRef.current = null }
@@ -254,8 +154,6 @@ const CompareColumn = forwardRef<CompareColumnHandle, Props>(function CompareCol
     if (videoRef.current) videoRef.current.currentTime = frame / safeFps
     onPause()
   }
-
-  // ── Cleanup on unmount ────────────────────────────────────────────────────
 
   useEffect(() => () => {
     if (rafRef.current !== null) cancelAnimationFrame(rafRef.current)
@@ -356,45 +254,11 @@ const CompareColumn = forwardRef<CompareColumnHandle, Props>(function CompareCol
         {darkWarning && (
           <div className="border border-yellow-500/40 bg-yellow-500/10 px-3 py-2 text-yellow-400 text-xs font-body flex items-start gap-2">
             <span className="flex-shrink-0">⚠</span>
-            <span>This video appears dark — pose detection may be less accurate. Improving lighting before recording will give better results.</span>
+            <span>This video appears dark — pose detection may be less accurate.</span>
           </div>
         )}
 
         {error && <p className="text-red-400 text-xs text-center">{error}</p>}
-      </div>
-    )
-  }
-
-  // ── Processing phase ──────────────────────────────────────────────────────
-
-  if (phase === 'processing') {
-    return (
-      <div className="space-y-4">
-        <div className="font-display tracking-widest uppercase text-cream/40 text-xs">{label}</div>
-        <div className="card p-6 space-y-6">
-          <div className="text-center space-y-1">
-            <h3 className="font-display text-2xl tracking-widest uppercase text-cream">On the Wall</h3>
-            <p className="text-cream/50 text-sm">{statusText}</p>
-          </div>
-          <div className="space-y-2">
-            <div className="efficiency-bar">
-              <div
-                className="h-full bg-terracotta transition-all duration-200 ease-out"
-                style={{ width: `${Math.round(progress * 100)}%` }}
-              />
-            </div>
-            <div className="flex justify-between text-xs text-cream/30 font-body">
-              <span>{Math.round(progress * 100)}%</span>
-              <span>Analyzing frames</span>
-            </div>
-          </div>
-          <div className="flex justify-center">
-            <svg viewBox="0 0 60 60" className="w-10 h-10 text-brown-light animate-spin" style={{ animationDuration: '3s' }}>
-              <circle cx="30" cy="30" r="20" stroke="currentColor" strokeWidth="3" fill="none" strokeDasharray="30 95" strokeLinecap="round" />
-              <circle cx="30" cy="30" r="12" stroke="currentColor" strokeWidth="2" fill="none" strokeDasharray="18 57" strokeLinecap="round" strokeDashoffset="20" />
-            </svg>
-          </div>
-        </div>
       </div>
     )
   }
@@ -407,7 +271,6 @@ const CompareColumn = forwardRef<CompareColumnHandle, Props>(function CompareCol
   return (
     <div className="space-y-4">
 
-      {/* File name header */}
       <div className="flex items-baseline gap-3">
         <span className="font-display tracking-widest uppercase text-cream/40 text-xs flex-shrink-0">
           {label}
@@ -415,7 +278,6 @@ const CompareColumn = forwardRef<CompareColumnHandle, Props>(function CompareCol
         <span className="text-cream font-body text-sm font-medium truncate">{file?.name}</span>
       </div>
 
-      {/* Score bar */}
       <div className="card p-4 flex items-center gap-4">
         <div>
           <div className="text-cream/40 text-xs tracking-widest uppercase mb-0.5">Efficiency</div>
@@ -438,10 +300,8 @@ const CompareColumn = forwardRef<CompareColumnHandle, Props>(function CompareCol
             <div className="text-cream/40 text-xs tracking-wider uppercase">Compressed</div>
           </div>
         </div>
-        <button className="btn-ghost text-xs ml-auto" onClick={reset}>Reset</button>
       </div>
 
-      {/* Video */}
       <div className="card overflow-hidden aspect-video">
         <video
           ref={videoRef}
@@ -452,7 +312,6 @@ const CompareColumn = forwardRef<CompareColumnHandle, Props>(function CompareCol
         />
       </div>
 
-      {/* 3D Skeleton */}
       <div className="card overflow-hidden h-64">
         {poseData.length > 0 ? (
           <Suspense fallback={
@@ -469,7 +328,6 @@ const CompareColumn = forwardRef<CompareColumnHandle, Props>(function CompareCol
         )}
       </div>
 
-      {/* Per-column scrubber and frame indicator */}
       <div className="card p-4 space-y-3">
         <input
           type="range"

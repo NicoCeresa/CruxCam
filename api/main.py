@@ -48,8 +48,11 @@ def _cleanup_old_files() -> None:
     cutoff = time.time() - FILE_TTL
     for pattern in ("cruxcam_upload_*", "cruxcam_output_*", "cruxcam_preview_*", "cruxcam_skeleton_*"):
         for path in TMP.glob(pattern):
-            if path.is_file() and path.stat().st_mtime < cutoff:
-                path.unlink(missing_ok=True)
+            try:
+                if path.is_file() and path.stat().st_mtime < cutoff:
+                    path.unlink(missing_ok=True)
+            except OSError:
+                pass  # file vanished between glob and stat — harmless
     for pid in [k for k, v in _preview_paths.items() if not v.exists()]:
         _preview_paths.pop(pid, None)
     # Purge stale rate-limit windows to keep the dict from growing unboundedly
@@ -253,6 +256,38 @@ async def upload_video(
 
     process_video_task.apply_async(
         args=[str(input_path), str(output_path), angle_threshold, start_frame, end_frame, frame_skip],
+        task_id=job_id,
+    )
+    return {"job_id": job_id}
+
+
+@app.post("/submit", status_code=202)
+def submit_preview(
+    request: Request,
+    preview_id: str = Query(...),
+    angle_threshold: int = Query(default=90, ge=30, le=120),
+    start_frame: int = Query(default=0, ge=0),
+    end_frame: Optional[int] = Query(default=None, ge=1),
+    frame_skip: int = Query(default=2, ge=1, le=10),
+):
+    """Start processing using the already-uploaded preview file — no second upload needed."""
+    _check_rate_limit(request)
+    _cleanup_old_files()
+
+    preview_path = _preview_paths.pop(preview_id, None)
+    if not preview_path or not preview_path.exists():
+        raise HTTPException(status_code=404, detail="Preview not found — please re-upload the file")
+
+    job_id = str(uuid.uuid4())
+    suffix = preview_path.suffix or ".mp4"
+    input_path = TMP / f"cruxcam_upload_{job_id}{suffix}"
+    preview_path.rename(input_path)
+
+    fd, output_tmp = tempfile.mkstemp(suffix=".mp4", prefix="cruxcam_output_", dir=TMP)
+    os.close(fd)
+
+    process_video_task.apply_async(
+        args=[str(input_path), output_tmp, angle_threshold, start_frame, end_frame, frame_skip],
         task_id=job_id,
     )
     return {"job_id": job_id}
