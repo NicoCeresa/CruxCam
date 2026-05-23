@@ -1,18 +1,21 @@
+import json
 import os
 import time
 import uuid
 import shutil
 import tempfile
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Optional
+
 import cv2
+import redis as redis_lib
 from fastapi import FastAPI, File, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
-from celery.result import AsyncResult
-from .celery_app import celery_app
-from .tasks import process_video_task
+
+from .tasks import deserialize_result, process_video
 
 app = FastAPI(title="CruxCam API")
 
@@ -25,24 +28,50 @@ app.add_middleware(
 )
 
 # ── Config ─────────────────────────────────────────────────────────────────────
-_PROJECT_ROOT   = Path(__file__).parent.parent
-TMP             = Path(tempfile.gettempdir())
-FILE_TTL        = int(os.environ.get("CRUXCAM_FILE_TTL", 3600))
-MAX_UPLOAD_MB   = int(os.environ.get("CRUXCAM_MAX_UPLOAD_MB", 500))
+_PROJECT_ROOT    = Path(__file__).parent.parent
+TMP              = Path(tempfile.gettempdir())
+FILE_TTL         = int(os.environ.get("CRUXCAM_FILE_TTL", 3600))
+MAX_UPLOAD_MB    = int(os.environ.get("CRUXCAM_MAX_UPLOAD_MB", 500))
 MAX_UPLOAD_BYTES = MAX_UPLOAD_MB * 1024 * 1024
-RATE_LIMIT      = int(os.environ.get("CRUXCAM_RATE_LIMIT", 10))  # uploads per IP per minute
-SAMPLE_PATH     = _PROJECT_ROOT / os.environ.get("CRUXCAM_SAMPLE_PATH", "inputs/tomoa_outside.mp4")
+RATE_LIMIT       = int(os.environ.get("CRUXCAM_RATE_LIMIT", 10))
+SAMPLE_PATH      = _PROJECT_ROOT / os.environ.get("CRUXCAM_SAMPLE_PATH", "inputs/tomoa_outside.mp4")
+REDIS_URL        = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
 
 ALLOWED_EXTENSIONS = {".mp4", ".mov", ".avi", ".mkv", ".webm"}
 
+# ── Services ───────────────────────────────────────────────────────────────────
+_redis    = redis_lib.Redis.from_url(REDIS_URL, decode_responses=True)
+_executor = ThreadPoolExecutor(max_workers=2)
+
 # ── State ──────────────────────────────────────────────────────────────────────
-# preview_id → temp file path (only needed until processing starts)
 _preview_paths: dict[str, Path] = {}
-# ip → list of upload timestamps for sliding-window rate limiting
-_upload_times: dict[str, list[float]] = defaultdict(list)
+_upload_times:  dict[str, list[float]] = defaultdict(list)
 
 
-# ── Helpers ────────────────────────────────────────────────────────────────────
+# ── Job helpers ────────────────────────────────────────────────────────────────
+
+def _set_job(job_id: str, state: dict) -> None:
+    _redis.setex(f"cruxcam:job:{job_id}", FILE_TTL, json.dumps(state))
+
+
+def _get_job(job_id: str) -> Optional[dict]:
+    raw = _redis.get(f"cruxcam:job:{job_id}")
+    return json.loads(raw) if raw else None
+
+
+def _submit_job(job_id: str, input_path: str, output_path: str,
+                angle_threshold: int, start_frame: int,
+                end_frame: Optional[int], frame_skip: int) -> None:
+    _set_job(job_id, {"status": "pending"})
+    _executor.submit(
+        process_video,
+        job_id, input_path, output_path,
+        angle_threshold, start_frame, end_frame, frame_skip,
+        _set_job,
+    )
+
+
+# ── File helpers ───────────────────────────────────────────────────────────────
 
 def _cleanup_old_files() -> None:
     cutoff = time.time() - FILE_TTL
@@ -52,10 +81,9 @@ def _cleanup_old_files() -> None:
                 if path.is_file() and path.stat().st_mtime < cutoff:
                     path.unlink(missing_ok=True)
             except OSError:
-                pass  # file vanished between glob and stat — harmless
+                pass
     for pid in [k for k, v in _preview_paths.items() if not v.exists()]:
         _preview_paths.pop(pid, None)
-    # Purge stale rate-limit windows to keep the dict from growing unboundedly
     now = time.time()
     for ip in list(_upload_times):
         _upload_times[ip] = [t for t in _upload_times[ip] if now - t < 60]
@@ -151,17 +179,13 @@ def sample_upload(
 
     fd, output_tmp = tempfile.mkstemp(suffix=".mp4", prefix="cruxcam_output_", dir=TMP)
     os.close(fd)
-    output_path = Path(output_tmp)
 
     if preview_id:
         p = _preview_paths.pop(preview_id, None)
         if p:
             p.unlink(missing_ok=True)
 
-    process_video_task.apply_async(
-        args=[str(input_path), str(output_path), angle_threshold, start_frame, end_frame, frame_skip],
-        task_id=job_id,
-    )
+    _submit_job(job_id, str(input_path), output_tmp, angle_threshold, start_frame, end_frame, frame_skip)
     return {"job_id": job_id}
 
 
@@ -215,52 +239,6 @@ def get_preview_frame(preview_id: str, n: int = Query(default=0, ge=0)):
     return Response(content=buf.tobytes(), media_type="image/jpeg")
 
 
-@app.post("/upload", status_code=202)
-async def upload_video(
-    request: Request,
-    video: UploadFile = File(...),
-    angle_threshold: int = Query(default=90, ge=30, le=120),
-    start_frame: int = Query(default=0, ge=0),
-    end_frame: Optional[int] = Query(default=None, ge=1),
-    preview_id: Optional[str] = Query(default=None),
-    frame_skip: int = Query(default=2, ge=1, le=10),
-):
-    _check_upload_size(request)
-    _check_rate_limit(request)
-    _validate_video(video.filename or "", video.content_type)
-    _cleanup_old_files()
-
-    job_id = str(uuid.uuid4())
-    suffix = Path(video.filename).suffix.lower() if video.filename else ".mp4"
-
-    fd, input_tmp = tempfile.mkstemp(suffix=suffix, prefix="cruxcam_upload_", dir=TMP)
-    os.close(fd)
-    input_path = Path(input_tmp)
-
-    fd, output_tmp = tempfile.mkstemp(suffix=".mp4", prefix="cruxcam_output_", dir=TMP)
-    os.close(fd)
-    output_path = Path(output_tmp)
-
-    with open(input_path, "wb") as f:
-        shutil.copyfileobj(video.file, f)
-
-    if input_path.stat().st_size == 0:
-        input_path.unlink(missing_ok=True)
-        output_path.unlink(missing_ok=True)
-        raise HTTPException(status_code=400, detail="Uploaded file is empty")
-
-    if preview_id:
-        p = _preview_paths.pop(preview_id, None)
-        if p:
-            p.unlink(missing_ok=True)
-
-    process_video_task.apply_async(
-        args=[str(input_path), str(output_path), angle_threshold, start_frame, end_frame, frame_skip],
-        task_id=job_id,
-    )
-    return {"job_id": job_id}
-
-
 @app.post("/submit", status_code=202)
 def submit_preview(
     request: Request,
@@ -270,7 +248,6 @@ def submit_preview(
     end_frame: Optional[int] = Query(default=None, ge=1),
     frame_skip: int = Query(default=2, ge=1, le=10),
 ):
-    """Start processing using the already-uploaded preview file — no second upload needed."""
     _check_rate_limit(request)
     _cleanup_old_files()
 
@@ -286,10 +263,7 @@ def submit_preview(
     fd, output_tmp = tempfile.mkstemp(suffix=".mp4", prefix="cruxcam_output_", dir=TMP)
     os.close(fd)
 
-    process_video_task.apply_async(
-        args=[str(input_path), output_tmp, angle_threshold, start_frame, end_frame, frame_skip],
-        task_id=job_id,
-    )
+    _submit_job(job_id, str(input_path), output_tmp, angle_threshold, start_frame, end_frame, frame_skip)
     return {"job_id": job_id}
 
 
@@ -297,57 +271,55 @@ def submit_preview(
 
 @app.get("/status/{job_id}")
 def get_status(job_id: str):
-    task = AsyncResult(job_id, app=celery_app)
-    if task.state == "PENDING":
+    data = _get_job(job_id)
+    if data is None:
         return {"status": "pending", "progress": 0.0}
-    if task.state == "PROGRESS":
-        meta = task.info or {}
-        total = max(meta.get("total", 1), 1)
-        return {"status": "processing", "progress": meta.get("current", 0) / total}
-    if task.state == "SUCCESS":
+    status = data["status"]
+    if status == "processing":
+        total = max(data.get("total", 1), 1)
+        return {"status": "processing", "progress": data.get("current", 0) / total}
+    if status == "complete":
         return {"status": "complete", "progress": 1.0}
-    if task.state == "FAILURE":
-        err = task.info
-        msg = str(err).splitlines()[0] if err else "Processing failed"
-        return {"status": "failed", "error": msg, "progress": 0.0}
-    return {"status": task.state.lower(), "progress": 0.0}
+    if status == "failed":
+        return {"status": "failed", "error": data.get("error", "Processing failed"), "progress": 0.0}
+    return {"status": status, "progress": 0.0}
 
 
 @app.get("/result/{job_id}")
 def get_result(job_id: str):
-    task = AsyncResult(job_id, app=celery_app)
-    if task.state != "SUCCESS":
-        raise HTTPException(status_code=404, detail=f"Job not complete (state: {task.state})")
-    return task.result
+    data = _get_job(job_id)
+    if not data or data["status"] != "complete":
+        state = data["status"] if data else "unknown"
+        raise HTTPException(status_code=404, detail=f"Job not complete (state: {state})")
+    return data["result"]
+
+
+@app.get("/video/{job_id}")
+def get_video(job_id: str):
+    data = _get_job(job_id)
+    if not data or data["status"] != "complete":
+        raise HTTPException(status_code=404, detail="Job not complete")
+    video_path = data["result"].get("processed_video_path")
+    if not video_path or not Path(video_path).exists():
+        raise HTTPException(status_code=404, detail="Video file not found")
+    return FileResponse(video_path, media_type="video/mp4")
 
 
 @app.get("/skeleton_video/{job_id}")
 def get_skeleton_video(job_id: str):
-    task = AsyncResult(job_id, app=celery_app)
-    if task.state != "SUCCESS":
+    data = _get_job(job_id)
+    if not data or data["status"] != "complete":
         raise HTTPException(status_code=404, detail="Job not complete")
 
-    result_data = task.result
+    result_data = data["result"]
     if not result_data.get("pose_data_3d"):
         raise HTTPException(status_code=404, detail="No pose data available")
 
     cache_path = TMP / f"cruxcam_skeleton_{job_id}.mp4"
     if not cache_path.exists():
-        from .tasks import deserialize_result
         from core.skeleton_renderer import render_skeleton_video
         result = deserialize_result(result_data)
         render_skeleton_video(result.pose_data_3d, result.fps, str(cache_path))
 
     return FileResponse(str(cache_path), media_type="video/mp4",
                         filename=f"cruxcam_3d_{job_id}.mp4")
-
-
-@app.get("/video/{job_id}")
-def get_video(job_id: str):
-    task = AsyncResult(job_id, app=celery_app)
-    if task.state != "SUCCESS":
-        raise HTTPException(status_code=404, detail="Job not complete")
-    video_path = task.result.get("processed_video_path")
-    if not video_path or not Path(video_path).exists():
-        raise HTTPException(status_code=404, detail="Video file not found")
-    return FileResponse(video_path, media_type="video/mp4")

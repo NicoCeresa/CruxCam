@@ -1,29 +1,35 @@
 import logging
+import threading
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
 import numpy as np
 
-from .celery_app import celery_app
 from core.pose_analyzer import AnalysisResult, PoseAnalyzer
 from core.video_processor import VideoProcessor
 
 log = logging.getLogger(__name__)
 
-# Cached per worker process — keeps the MediaPipe Pose model loaded across tasks.
-_processor: Optional[VideoProcessor] = None
+_thread_local = threading.local()
+
+
+def _get_processor(angle_threshold: int) -> VideoProcessor:
+    if not hasattr(_thread_local, "processor") or _thread_local.processor is None:
+        _thread_local.processor = VideoProcessor(PoseAnalyzer(angle_threshold=angle_threshold))
+    else:
+        _thread_local.processor.pose_analyzer.angle_threshold = angle_threshold
+    return _thread_local.processor
 
 
 def serialize_result(result: AnalysisResult) -> dict:
-    """Convert AnalysisResult to a JSON-safe dict (numpy arrays → lists)."""
     pose_data = None
     if result.pose_data_3d:
         pose_data = [
             [
-                entry[0],                                                   # frame_num
-                entry[1].tolist() if entry[1] is not None else None,        # world_lms (33,3)
-                entry[2],                                                   # is_good
-                list(entry[3]) if entry[3] is not None else None,           # com_xyz
+                entry[0],
+                entry[1].tolist() if entry[1] is not None else None,
+                entry[2],
+                list(entry[3]) if entry[3] is not None else None,
             ]
             for entry in result.pose_data_3d
         ]
@@ -38,7 +44,6 @@ def serialize_result(result: AnalysisResult) -> dict:
 
 
 def deserialize_result(data: dict) -> AnalysisResult:
-    """Reconstruct an AnalysisResult from a JSON dict."""
     pose_data = None
     if data.get("pose_data_3d"):
         pose_data = [
@@ -60,37 +65,31 @@ def deserialize_result(data: dict) -> AnalysisResult:
     )
 
 
-@celery_app.task(bind=True)
-def process_video_task(
-    self,
+def process_video(
+    job_id: str,
     input_path: str,
     output_path: str,
-    angle_threshold: int = 90,
-    start_frame: int = 0,
-    end_frame: Optional[int] = None,
-    frame_skip: int = 2,
-) -> dict:
-    global _processor
+    angle_threshold: int,
+    start_frame: int,
+    end_frame: Optional[int],
+    frame_skip: int,
+    set_state: Callable[[str, dict], None],
+) -> None:
+    """Run video processing in a background thread, writing state via set_state."""
+    log.info("job start  id=%s  input=%s  exists=%s", job_id, input_path, Path(input_path).exists())
+    input_file = Path(input_path)
 
-    log.info("task start  input=%s  exists=%s", input_path, Path(input_path).exists())
+    if not input_file.exists():
+        set_state(job_id, {"status": "failed", "error": f"Input file missing: {input_path}"})
+        return
 
-    if _processor is None:
-        _processor = VideoProcessor(PoseAnalyzer(angle_threshold=angle_threshold))
-    else:
-        _processor.pose_analyzer.angle_threshold = angle_threshold
+    processor = _get_processor(angle_threshold)
 
     def _progress(current: int, total: int) -> None:
-        self.update_state(
-            state="PROGRESS",
-            meta={"current": current, "total": total},
-        )
-
-    input_file = Path(input_path)
-    if not input_file.exists():
-        raise FileNotFoundError(f"Input file missing before task start: {input_path}")
+        set_state(job_id, {"status": "processing", "current": current, "total": total})
 
     try:
-        result = _processor.process_video(
+        result = processor.process_video(
             input_path, output_path,
             progress_callback=_progress,
             start_frame=start_frame,
@@ -98,10 +97,9 @@ def process_video_task(
             frame_skip=frame_skip,
         )
         serialized = serialize_result(result)
-        # Delete only after result is serialized — prevents re-queued retries
-        # (task_acks_late=True) from failing with a missing file on the second run.
         input_file.unlink(missing_ok=True)
-        return serialized
-    except Exception:
+        set_state(job_id, {"status": "complete", "result": serialized})
+    except Exception as exc:
         input_file.unlink(missing_ok=True)
-        raise
+        log.exception("job failed  id=%s", job_id)
+        set_state(job_id, {"status": "failed", "error": str(exc).splitlines()[0]})

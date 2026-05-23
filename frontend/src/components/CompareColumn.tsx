@@ -55,7 +55,6 @@ const CompareColumn = forwardRef<CompareColumnHandle, Props>(function CompareCol
   const [error, setError]                   = useState<string | null>(null)
   const [darkWarning, setDarkWarning]       = useState(false)
   const [dragging, setDragging]             = useState(false)
-  const [angleThreshold, setAngleThreshold] = useState(90)
   const [trimStart, setTrimStart]           = useState(0)
   const [trimEnd, setTrimEnd]               = useState(0)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -105,7 +104,7 @@ const CompareColumn = forwardRef<CompareColumnHandle, Props>(function CompareCol
   useImperativeHandle(ref, () => ({
     getUploadArgs: () => {
       if (!file || !info || phase !== 'upload') return null
-      return { file, info, angleThreshold, trimStart, trimEnd }
+      return { file, info, angleThreshold: 90, trimStart, trimEnd }
     },
     showResults: (res: AnalysisResult, id: string) => {
       setResult(res)
@@ -236,22 +235,6 @@ const CompareColumn = forwardRef<CompareColumnHandle, Props>(function CompareCol
 
         {info && (
           <div className="card p-4 space-y-4">
-            <div className="flex items-center justify-between gap-4">
-              <label className="text-xs tracking-wider uppercase text-cream/50">Arm Angle</label>
-              <div className="flex items-center gap-2">
-                <input
-                  type="range"
-                  min={30} max={120} step={5}
-                  value={angleThreshold}
-                  onChange={e => setAngleThreshold(Number(e.target.value))}
-                  className="w-24 accent-terracotta"
-                />
-                <span className="font-display text-xl text-terracotta w-10 text-right">
-                  {angleThreshold}°
-                </span>
-              </div>
-            </div>
-            <div className="border-t border-navy-lighter" />
             <TrimControls
               previewId={info.preview_id}
               totalFrames={info.total_frames}

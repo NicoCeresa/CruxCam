@@ -18,7 +18,6 @@ export default function UploadZone({ onJobStart }: Props) {
   const [error, setError] = useState<string | null>(null)
   const [dragging, setDragging] = useState(false)
 
-  const [angleThreshold, setAngleThreshold] = useState(90)
   const [trimStart, setTrimStart] = useState(0)
   const [trimEnd, setTrimEnd] = useState(0)
   const [darkWarning, setDarkWarning] = useState(false)
@@ -80,8 +79,8 @@ export default function UploadZone({ onJobStart }: Props) {
     setLoading(true)
     try {
       const jobId = useSample
-        ? await uploadSample(info.preview_id, angleThreshold, trimStart, trimEnd)
-        : await submitPreview(info.preview_id, angleThreshold, trimStart, trimEnd)
+        ? await uploadSample(info.preview_id, 90, trimStart, trimEnd)
+        : await submitPreview(info.preview_id, 90, trimStart, trimEnd)
       onJobStart(jobId, info)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Upload failed')
@@ -171,31 +170,6 @@ export default function UploadZone({ onJobStart }: Props) {
       {/* Controls — only shown after info loads */}
       {info && (
         <div className="card p-6 space-y-6">
-          {/* Angle threshold */}
-          <div className="flex items-center justify-between gap-6">
-            <div>
-              <label className="block text-xs tracking-wider uppercase text-cream/50 mb-1">
-                Arm Angle Threshold
-              </label>
-              <p className="text-cream/30 text-xs">
-                Frames where both elbows are below this angle count as "compressed"
-              </p>
-            </div>
-            <div className="flex items-center gap-3 flex-shrink-0">
-              <input
-                type="range"
-                min={30} max={120} step={5}
-                value={angleThreshold}
-                onChange={e => setAngleThreshold(Number(e.target.value))}
-                className="w-28 accent-terracotta"
-              />
-              <span className="font-display text-2xl text-terracotta w-12 text-right">
-                {angleThreshold}°
-              </span>
-            </div>
-          </div>
-
-          <div className="border-t border-navy-lighter" />
 
           {/* Trim */}
           <TrimControls
