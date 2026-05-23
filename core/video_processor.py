@@ -126,7 +126,7 @@ class VideoProcessor:
                 '-ss', str(start_secs),
                 '-i', input_path,
                 '-t', str(duration_secs),
-                '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '28',
+                '-c:v', 'copy',
                 '-movflags', '+faststart',
                 output_path,
             ],
