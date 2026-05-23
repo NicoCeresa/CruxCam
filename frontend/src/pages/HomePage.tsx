@@ -1,4 +1,5 @@
 import { useNavigate } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 
 export default function HomePage() {
   const navigate = useNavigate()
@@ -18,6 +19,33 @@ export default function HomePage() {
         <button onClick={() => navigate('/analyze')} className="btn-primary">
           Analyze Your Footage
         </button>
+      </section>
+
+      {/* Tabs overview */}
+      <section className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="card p-8 space-y-4 flex flex-col">
+          <h2 className="font-display tracking-widest uppercase text-terracotta text-2xl">Analyze</h2>
+          <p className="text-cream/70 text-sm leading-relaxed flex-1">
+            Upload a single climbing clip and get a full frame-by-frame breakdown. Set your arm
+            angle threshold, trim the section you care about, and see your efficiency score
+            alongside an annotated video and an interactive 3D skeleton viewer you can scrub and
+            rotate freely.
+          </p>
+          <Link to="/analyze" className="btn-primary self-start text-sm px-6 py-2">
+            Go to Analyze
+          </Link>
+        </div>
+        <div className="card p-8 space-y-4 flex flex-col">
+          <h2 className="font-display tracking-widest uppercase text-terracotta text-2xl">Compare</h2>
+          <p className="text-cream/70 text-sm leading-relaxed flex-1">
+            Load two clips side by side and analyze them in parallel. Both videos and skeletons
+            play in sync so you can spot differences in arm position, body tension, and efficiency
+            across climbs, sessions, or techniques.
+          </p>
+          <Link to="/compare" className="btn-primary self-start text-sm px-6 py-2">
+            Go to Compare
+          </Link>
+        </div>
       </section>
 
       {/* About CruxCam */}
