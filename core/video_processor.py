@@ -15,7 +15,7 @@ class VideoProcessor:
 
     def __init__(self, pose_analyzer: Optional[PoseAnalyzer] = None):
         self.pose_analyzer = pose_analyzer or PoseAnalyzer()
-        self._pose = mp.solutions.pose.Pose()
+        self._pose = mp.solutions.pose.Pose(model_complexity=0)
 
     def process_video(
         self,
@@ -126,7 +126,8 @@ class VideoProcessor:
                 '-ss', str(start_secs),
                 '-i', input_path,
                 '-t', str(duration_secs),
-                '-c:v', 'libx264', '-preset', 'fast', '-crf', '23',
+                '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '28',
+                '-movflags', '+faststart',
                 output_path,
             ],
             capture_output=True,
