@@ -15,6 +15,8 @@ const INIT_JOB: JobState = { jobId: null, progress: 0, done: false, error: null 
 
 function JobProgressBar({ job, label }: { job: JobState; label: string }) {
   if (!job.jobId && !job.error) return null
+  const isActive = job.jobId !== null && !job.done && !job.error
+  const indeterminate = isActive && job.progress === 0
   return (
     <div className="space-y-1.5">
       <div className="flex items-center justify-between text-xs">
@@ -23,15 +25,21 @@ function JobProgressBar({ job, label }: { job: JobState; label: string }) {
           <span className="text-red-400 font-body">{job.error}</span>
         ) : job.progress >= 1 && !job.done ? (
           <span className="text-cream/40">Finalizing…</span>
+        ) : indeterminate ? (
+          <span className="text-cream/40">Processing…</span>
         ) : (
           <span className="text-cream/40 tabular-nums">{Math.round(job.progress * 100)}%</span>
         )}
       </div>
       <div className="h-1.5 bg-navy-lighter rounded-full overflow-hidden">
-        <div
-          className={`h-full rounded-full transition-all duration-300 ${job.error ? 'bg-red-400' : 'bg-terracotta'}`}
-          style={{ width: `${Math.round(job.progress * 100)}%` }}
-        />
+        {indeterminate ? (
+          <div className="h-full w-1/3 rounded-full bg-terracotta animate-pulse" />
+        ) : (
+          <div
+            className={`h-full rounded-full transition-all duration-300 ${job.error ? 'bg-red-400' : 'bg-terracotta'}`}
+            style={{ width: `${Math.round(job.progress * 100)}%` }}
+          />
+        )}
       </div>
     </div>
   )

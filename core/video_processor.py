@@ -138,7 +138,7 @@ class VideoProcessor:
                 write_q.put(frame)
 
                 frame_count += 1
-                if progress_callback:
+                if progress_callback and frame_count % 10 == 0:
                     real_total = actual_frames_read[0] or total_frames
                     progress_callback(min(frame_count, real_total), real_total)
 
