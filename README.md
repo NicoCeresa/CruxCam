@@ -2,44 +2,41 @@
 
 A climbing efficiency analyzer that processes video through a pose detection pipeline and scores technique frame-by-frame.
 
+## Features
+
+- **Analyze** — upload a single clip, trim it, and get a frame-by-frame efficiency breakdown with an annotated video and interactive 3D skeleton viewer
+- **Compare** — load two clips side by side, process them, and play both videos and skeletons in sync to spot differences in technique across climbs or sessions
+
 ## How it works
 
 CruxCam uses MediaPipe to detect body landmarks on each frame of a climbing video. Angles are calculated at each elbow joint in **3D world space** (metres, hip-relative) and each frame is classified as **good** (arms extended) or **bad** (arms compressed). The final efficiency score is the percentage of good frames.
 
 It also estimates the climber's **center of mass (CoM)** using biomechanically weighted body segments (head 8%, torso 50%, each arm 5%, each leg 16%), computed in 3D world space and smoothed with an exponential moving average.
 
-**Visual indicators in the output video:**
-- Yellow dots — detected body landmarks
-- Green skeleton — good arm position (arms extended)
-- Red skeleton — poor arm position (arms compressed)
-- Blue dot — smoothed center of mass (labeled with depth)
-- On-screen panel — live efficiency %, progress bar, and frame counts
-
 ## Architecture
 
 ```
-Vercel (React) → Railway (FastAPI + Celery + Redis)
+Vercel (React) → Railway (FastAPI + Redis)
 ```
 
-- **React** (`frontend/`) — upload, trim, polling, results with interactive 3D skeleton viewer; routes via React Router (`/` upload/processing, `/results/:jobId` results)
-- **FastAPI** (`api/main.py`) — REST endpoints: `/info`, `/upload`, `/status/{id}`, `/result/{id}`, `/video/{id}`, `/sample/*`
-- **Celery** (`api/tasks.py`) — runs `VideoProcessor.process_video` in a background worker
-- **Redis** — message broker and result backend
+- **React** (`frontend/`) — upload, trim, polling, results with interactive 3D skeleton viewer; two routes: `/analyze` and `/compare`
+- **FastAPI** (`api/main.py`) — REST endpoints: `/info`, `/submit`, `/status/{id}`, `/result/{id}`, `/video/{id}`, `/sample/*`
+- **ThreadPoolExecutor** (`api/tasks.py`) — runs `VideoProcessor.process_video` in a background thread (max 1 concurrent job to stay within Railway memory limits)
+- **Redis** — persists job state (progress, results) across requests
 
-The API and Celery worker run in the same Docker container via `start.sh`. Video processing uses a producer-consumer threading pipeline: a reader thread decodes frames into a queue, the main worker thread runs pose inference, and a writer thread encodes frames to disk — overlapping I/O with inference.
+Video processing uses a reader thread to overlap disk I/O with MediaPipe inference. Output is produced by ffmpeg stream-copying the original upload with the trim applied — no frames are decoded or re-encoded, keeping peak memory low.
 
 ## Stack
 
-- [MediaPipe](https://google.github.io/mediapipe/) — 3D pose estimation (world landmarks)
-- [OpenCV](https://opencv.org/) — video I/O and frame annotation
-- [ffmpeg](https://ffmpeg.org/) — video re-encoding fallback
+- [MediaPipe](https://google.github.io/mediapipe/) — 3D pose estimation (world landmarks, `model_complexity=0`)
+- [OpenCV](https://opencv.org/) — video I/O
+- [ffmpeg](https://ffmpeg.org/) — container remux and trim
 - [React](https://react.dev/) + [Vite](https://vitejs.dev/) — web frontend
 - [React Router](https://reactrouter.com/) — client-side routing
 - [Three.js](https://threejs.org/) + [@react-three/fiber](https://docs.pmnd.rs/react-three-fiber) — interactive 3D skeleton viewer
 - [Tailwind CSS](https://tailwindcss.com/) — styling
 - [FastAPI](https://fastapi.tiangolo.com/) — REST API
-- [Celery](https://docs.celeryq.dev/) — async task queue
-- [Redis](https://redis.io/) — broker and result backend
+- [Redis](https://redis.io/) — job state store
 - [Docker](https://www.docker.com/) — containerised backend deployment
 
 ## Project structure
@@ -47,39 +44,35 @@ The API and Celery worker run in the same Docker container via `start.sh`. Video
 ```
 CruxCam/
 ├── frontend/                 # React + Vite frontend (deployed to Vercel)
-│   ├── public/
-│   │   └── climbing_logo.png
-│   ├── src/
-│   │   ├── App.tsx
-│   │   ├── api.ts            # Typed wrappers for all API endpoints
-│   │   ├── types.ts
-│   │   └── components/
-│   │       ├── Header.tsx
-│   │       ├── UploadZone.tsx
-│   │       ├── TrimControls.tsx
-│   │       ├── ProcessingView.tsx
-│   │       ├── ResultsPanel.tsx
-│   │       └── Skeleton3D.tsx  # Three.js skeleton viewer
-│   ├── index.html
-│   ├── vercel.json
-│   └── package.json
+│   └── src/
+│       ├── api.ts            # Typed wrappers for all API endpoints
+│       ├── types.ts
+│       ├── pages/
+│       │   ├── HomePage.tsx
+│       │   ├── AnalyzePage.tsx
+│       │   └── ComparePage.tsx
+│       └── components/
+│           ├── UploadZone.tsx
+│           ├── TrimControls.tsx
+│           ├── CompareColumn.tsx
+│           ├── ResultsPanel.tsx
+│           └── Skeleton3D.tsx  # Three.js skeleton viewer
 ├── api/
-│   ├── celery_app.py         # Celery configuration
-│   ├── main.py               # FastAPI endpoints
-│   └── tasks.py              # process_video_task, serialization helpers
+│   ├── main.py               # FastAPI endpoints + ThreadPoolExecutor job submission
+│   └── tasks.py              # process_video, serialize/deserialize helpers
 ├── core/
-│   ├── pose_analyzer.py      # Angle calculation, CoM, frame annotation
-│   └── video_processor.py    # Threaded video pipeline, AnalysisResult
+│   ├── pose_analyzer.py      # Angle calculation, CoM, frame classification
+│   └── video_processor.py    # Threaded inference pipeline, AnalysisResult
 ├── inputs/                   # Sample videos (gitignored except .gitkeep)
-├── Dockerfile                # Backend image (FastAPI + Celery + ffmpeg)
-├── docker-compose.yml        # Local development
-├── start.sh                  # Entrypoint: starts Celery worker + uvicorn
-└── requirements.txt          # Production Python dependencies
+├── Dockerfile
+├── docker-compose.yml        # Local development (API + Redis)
+├── start.sh                  # Entrypoint: exec uvicorn
+└── requirements.txt
 ```
 
 ## Setup
 
-**Prerequisites:** Python 3.11+, Node.js 18+, Redis running locally
+**Prerequisites:** Python 3.11+, Node.js 18+, Docker (recommended)
 
 ```bash
 git clone https://github.com/NicoCeresa/CruxCam.git
@@ -97,22 +90,16 @@ docker compose up --build
 cd frontend && npm run dev
 ```
 
-**Option B — manually, five terminals**
+**Option B — manually**
 
 ```bash
 # 1. Redis
 redis-server
 
-# 2. FastAPI
+# 2. FastAPI (background threads handle processing — no separate worker needed)
 uvicorn api.main:app --reload
 
-# 3. Celery worker 1 (--pool=solo required on macOS)
-celery -A api.celery_app worker --loglevel=info --pool=solo -n worker1@%h
-
-# 4. Celery worker 2 (needed for compare mode — processes both videos in parallel)
-celery -A api.celery_app worker --loglevel=info --pool=solo -n worker2@%h
-
-# 5. React frontend
+# 3. React frontend
 cd frontend && npm run dev
 ```
 
@@ -131,11 +118,17 @@ Open [http://localhost:5173](http://localhost:5173).
 
 ## Usage
 
+**Analyze**
 1. Upload a climbing video (MP4, MOV, AVI, MKV, WebM) or click **Use sample video**
-2. Adjust the arm angle threshold (default 90°) — frames where both elbows are below this angle count as compressed
-3. Trim the clip using the range slider with live frame previews
-4. Click **Analyze Footage** — the app navigates to `/results/:jobId` once processing completes
-5. View the annotated video alongside the interactive 3D skeleton — scrub or play both in sync, rotate the 3D view freely while playing
+2. Trim the clip using the dual-handle slider — start and end frame thumbnails update live
+3. Click **Analyze Footage** and wait for processing
+4. View the efficiency score, annotated video, and interactive 3D skeleton — scrub or play, rotate the 3D view freely
+
+**Compare**
+1. Drop a video into each column (Video A and Video B)
+2. Trim each clip independently
+3. Click **Analyze Footage** — both jobs run and results appear as each finishes
+4. Use the shared Play/Pause button to watch both videos and skeletons in sync
 
 ## Efficiency score
 
@@ -151,8 +144,6 @@ efficiency = (good_frames / total_frames) × 100
 
 ## Deployment
 
-The frontend and backend deploy independently.
-
 **Frontend → Vercel**
 - Connect GitHub repo, set root directory to `frontend`
 - Add env var: `VITE_API_URL=https://your-railway-url.up.railway.app`
@@ -161,11 +152,10 @@ The frontend and backend deploy independently.
 - Deploy from GitHub repo (auto-detects `Dockerfile`)
 - Add managed Redis service, set `REDIS_URL`
 - Add env var: `CRUXCAM_ALLOWED_ORIGINS=https://your-vercel-url.vercel.app`
-- `start.sh` runs both the API and Celery worker in one container
+- `start.sh` runs a single uvicorn process; background threads handle video processing
 
 ## Future work
 
-- Video comparison mode — side-by-side analysis of two clips
 - Instagram reel input
 - Multi-climber tracking
 - Progress tracking over time
