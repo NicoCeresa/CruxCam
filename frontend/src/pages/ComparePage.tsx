@@ -67,11 +67,8 @@ export default function ComparePage() {
     if (!argsA && !argsB) return
 
     setPagePhase('analyzing')
-    // Reset job state and sync refs immediately so polling starts fresh
-    const resetA = INIT_JOB
-    const resetB = INIT_JOB
-    setJobA(resetA); jobARef.current = resetA
-    setJobB(resetB); jobBRef.current = resetB
+    setJobA(INIT_JOB)
+    setJobB(INIT_JOB)
 
     const [resA, resB] = await Promise.allSettled([
       argsA
@@ -92,8 +89,8 @@ export default function ComparePage() {
         ? { jobId: resB.value, progress: 0, done: false, error: null }
         : { jobId: null, progress: 0, done: true, error: resB.status === 'rejected' ? String((resB as PromiseRejectedResult).reason) : null }
 
-    setJobA(newA); jobARef.current = newA
-    setJobB(newB); jobBRef.current = newB
+    setJobA(newA)
+    setJobB(newB)
   }
 
   // SSE for job A
