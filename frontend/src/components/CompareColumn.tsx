@@ -15,8 +15,8 @@ function angleColor(deg: number | null | undefined): string {
 
 function hipColor(dist: number | null | undefined): string {
   if (dist == null) return 'text-cream/40'
-  if (dist < 0.3)  return 'text-forest-light'
-  if (dist < 0.7)  return 'text-yellow-400'
+  if (dist < 0.7)  return 'text-forest-light'
+  if (dist < 1.1)  return 'text-yellow-400'
   return 'text-red-400'
 }
 

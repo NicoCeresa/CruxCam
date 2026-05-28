@@ -28,8 +28,8 @@ const PLANE_RED        = new THREE.Color('#FF3232')
 
 function planeColor(dist: number | null): THREE.Color {
   if (dist == null) return PLANE_GREEN
-  if (dist < 0.3)  return PLANE_GREEN
-  if (dist < 0.7)  return PLANE_YELLOW
+  if (dist < 0.7)  return PLANE_GREEN
+  if (dist < 1.1)  return PLANE_YELLOW
   return PLANE_RED
 }
 
