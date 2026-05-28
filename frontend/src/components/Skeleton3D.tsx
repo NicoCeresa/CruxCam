@@ -43,13 +43,14 @@ interface SceneProps {
   planeCentroid: [number, number, number] | null
   planeNormal:   [number, number, number] | null
   hipPlaneDist:  number | null
+  wallNormal:    [number, number, number] | null
 }
 
 const _defaultNormal = new THREE.Vector3(0, 0, 1)
 const _q = new THREE.Quaternion()
 const _v = new THREE.Vector3()
 
-function Scene({ landmarks, isGood, com, target, planeCentroid, planeNormal, hipPlaneDist }: SceneProps) {
+function Scene({ landmarks, isGood, com, target, planeCentroid, planeNormal, hipPlaneDist, wallNormal }: SceneProps) {
   const jointsRef    = useRef<THREE.InstancedMesh>(null!)
   const jointMatRef  = useRef<THREE.MeshBasicMaterial>(null!)
   const linesGeoRef  = useRef<THREE.BufferGeometry>(null!)
@@ -127,8 +128,10 @@ function Scene({ landmarks, isGood, com, target, planeCentroid, planeNormal, hip
       // Position — apply the same coordinate flip as landmarks
       planeRef.current.position.set(-planeCentroid[0], -planeCentroid[1], planeCentroid[2])
 
-      // Orient plane to match the smoothed normal
-      _v.set(-planeNormal[0], -planeNormal[1], planeNormal[2]).normalize()
+      // Orient using the fixed wall normal (averaged across all frames) so the
+      // plane doesn't spin during playback. Fall back to per-frame normal if unavailable.
+      const n = wallNormal ?? planeNormal
+      _v.set(-n[0], -n[1], n[2]).normalize()
       _q.setFromUnitVectors(_defaultNormal, _v)
       planeRef.current.quaternion.copy(_q)
       planeRef.current.visible = true
@@ -157,7 +160,7 @@ function Scene({ landmarks, isGood, com, target, planeCentroid, planeNormal, hip
       planeRef.current.visible = false
       hipLineRef.current.visible = false
     }
-  }, [landmarks, isGood, com, planeCentroid, planeNormal, hipPlaneDist, dummy])
+  }, [landmarks, isGood, com, planeCentroid, planeNormal, hipPlaneDist, wallNormal, dummy])
 
   return (
     <>
@@ -218,7 +221,7 @@ export default function Skeleton3D({ poseData, currentFrame, isGood }: Props) {
   const planeCentroid = entry?.[7] ?? null
   const planeNormal   = entry?.[8] ?? null
 
-  const { cameraPos, target } = useMemo(() => {
+  const { cameraPos, target, wallNormal } = useMemo(() => {
     let minX = Infinity, maxX = -Infinity
     let minY = Infinity, maxY = -Infinity
     let minZ = Infinity, maxZ = -Infinity
@@ -243,12 +246,14 @@ export default function Skeleton3D({ poseData, currentFrame, isGood }: Props) {
     const span = Math.max(maxX - minX, maxY - minY, maxZ - minZ, 0.5)
     const d    = span * 1.8
 
-    // Use the averaged contact-plane normal (wall-perpendicular direction) to
-    // position the camera behind the climber at the true wall angle.
+    // Use the averaged contact-plane normal for camera position and as the fixed
+    // wall orientation — computed once so the plane doesn't spin during playback.
     let cameraPos: [number, number, number]
+    let wallNormal: [number, number, number] | null = null
     if (nCount > 0) {
       const len = Math.sqrt(nx * nx + ny * ny + nz * nz)
-      cameraPos = [cx + (nx / len) * d, cy + (ny / len) * d, cz + (nz / len) * d]
+      wallNormal = [nx / len, ny / len, nz / len]
+      cameraPos = [cx + wallNormal[0] * d, cy + wallNormal[1] * d, cz + wallNormal[2] * d]
     } else {
       cameraPos = [cx, cy + d * 0.3, cz + d]
     }
@@ -256,6 +261,7 @@ export default function Skeleton3D({ poseData, currentFrame, isGood }: Props) {
     return {
       target:    [cx, cy, cz] as [number, number, number],
       cameraPos,
+      wallNormal,
     }
   }, [poseData])
 
@@ -273,6 +279,7 @@ export default function Skeleton3D({ poseData, currentFrame, isGood }: Props) {
         planeCentroid={planeCentroid}
         planeNormal={planeNormal}
         hipPlaneDist={hipPlaneDist}
+        wallNormal={wallNormal}
       />
     </Canvas>
   )
