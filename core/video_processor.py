@@ -35,6 +35,9 @@ class VideoProcessor:
         if not cap.isOpened():
             raise RuntimeError(f"Could not open video file: {read_path}")
 
+        fps       = int(cap.get(cv2.CAP_PROP_FPS))
+        raw_total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+
         start_frame  = max(0, start_frame)
         end_frame    = min(end_frame, raw_total) if end_frame is not None else raw_total
         total_frames = end_frame - start_frame
