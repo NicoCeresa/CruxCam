@@ -21,10 +21,12 @@ from .tasks import process_video
 
 app = FastAPI(title="CruxCam API")
 
-_ALLOWED_ORIGINS = os.environ.get("CRUXCAM_ALLOWED_ORIGINS", "http://localhost:5173").split(",")
+_ALLOWED_ORIGINS      = os.environ.get("CRUXCAM_ALLOWED_ORIGINS", "http://localhost:5173").split(",")
+_ALLOWED_ORIGIN_REGEX = os.environ.get("CRUXCAM_ALLOWED_ORIGIN_REGEX", None)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_ALLOWED_ORIGINS,
+    allow_origin_regex=_ALLOWED_ORIGIN_REGEX,
     allow_methods=["GET", "POST"],
     allow_headers=["*"],
 )
