@@ -1,3 +1,4 @@
+import asyncio
 import json
 import os
 import subprocess
@@ -14,7 +15,7 @@ import cv2
 import redis as redis_lib
 from fastapi import FastAPI, File, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, Response, StreamingResponse
 
 from .tasks import process_video
 
@@ -42,7 +43,7 @@ ALLOWED_EXTENSIONS = {".mp4", ".mov", ".avi", ".mkv", ".webm"}
 
 # ── Services ───────────────────────────────────────────────────────────────────
 _redis    = redis_lib.Redis.from_url(REDIS_URL, decode_responses=True)
-_executor = ThreadPoolExecutor(max_workers=1)
+_executor = ThreadPoolExecutor(max_workers=2)
 
 # ── State ──────────────────────────────────────────────────────────────────────
 _preview_paths: dict[str, Path] = {}
@@ -317,6 +318,34 @@ def get_status(job_id: str):
     if status == "failed":
         return {"status": "failed", "error": data.get("error", "Processing failed"), "progress": 0.0}
     return {"status": status, "progress": 0.0}
+
+
+@app.get("/stream/{job_id}")
+async def stream_job(job_id: str):
+    async def _gen():
+        while True:
+            data = await asyncio.to_thread(_get_job, job_id)
+            if data is None:
+                payload = {"status": "pending", "progress": 0.0}
+            elif data["status"] == "processing":
+                total = max(data.get("total", 1), 1)
+                payload = {"status": "processing", "progress": data.get("current", 0) / total}
+            elif data["status"] == "complete":
+                yield f"data: {json.dumps({'status': 'complete', 'progress': 1.0})}\n\n"
+                return
+            elif data["status"] == "failed":
+                yield f"data: {json.dumps({'status': 'failed', 'error': data.get('error', ''), 'progress': 0.0})}\n\n"
+                return
+            else:
+                payload = {"status": data["status"], "progress": 0.0}
+            yield f"data: {json.dumps(payload)}\n\n"
+            await asyncio.sleep(0.5)
+
+    return StreamingResponse(
+        _gen(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @app.get("/result/{job_id}")

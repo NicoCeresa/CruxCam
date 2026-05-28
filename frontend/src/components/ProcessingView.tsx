@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { getResult, getStatus } from '../api'
-import type { AnalysisResult } from '../types'
+import { getResult, getStreamUrl } from '../api'
+import type { AnalysisResult, JobStatus } from '../types'
 
 const MESSAGES = [
   'Reading the route…',
@@ -37,66 +37,57 @@ export default function ProcessingView({ jobId, onComplete }: Props) {
     return () => clearInterval(id)
   }, [])
 
-  // Polling — stable interval, only recreated if jobId changes
+  // SSE — one persistent connection per job replacing the polling interval
   useEffect(() => {
-    let stopped = false
     let lastProgress = -1
     let lastProgressAt = Date.now()
     let networkErrors = 0
     const STALL_MS = 60_000
 
-    const id = setInterval(async () => {
-      if (stopped) return
-      try {
-        const status = await getStatus(jobId)
-        if (stopped) return
-        networkErrors = 0
+    const es = new EventSource(getStreamUrl(jobId))
 
-        if (status.status === 'pending') {
-          setStatusText('Waiting for worker…')
-          lastProgressAt = Date.now()
-          return
-        }
-        if (status.status === 'processing') {
-          if (status.progress !== lastProgress) {
-            lastProgress = status.progress
-            lastProgressAt = Date.now()
-          } else if (Date.now() - lastProgressAt > STALL_MS) {
-            stopped = true
-            clearInterval(id)
-            setError('Processing stalled — the worker may have run out of memory. Try a shorter clip.')
-            return
-          }
-          setProgress(status.progress)
-          return
-        }
-        if (status.status === 'complete') {
-          stopped = true
-          clearInterval(id)
-          setProgress(1)
-          const result = await getResult(jobId)
-          onCompleteRef.current(result)
-          return
-        }
-        if (status.status === 'failed') {
-          stopped = true
-          clearInterval(id)
-          setError(status.error ?? 'Processing failed')
-        }
-      } catch (e) {
-        networkErrors++
-        if (networkErrors >= 3) {
-          stopped = true
-          clearInterval(id)
-          setError('Connection lost — check your network and try again.')
-        }
+    es.onmessage = (e) => {
+      networkErrors = 0
+      const status: JobStatus = JSON.parse(e.data)
+
+      if (status.status === 'pending') {
+        setStatusText('Waiting for worker…')
+        lastProgressAt = Date.now()
+        return
       }
-    }, 1000)
-
-    return () => {
-      stopped = true
-      clearInterval(id)
+      if (status.status === 'processing') {
+        if (status.progress !== lastProgress) {
+          lastProgress = status.progress
+          lastProgressAt = Date.now()
+        } else if (Date.now() - lastProgressAt > STALL_MS) {
+          es.close()
+          setError('Processing stalled — the worker may have run out of memory. Try a shorter clip.')
+          return
+        }
+        setProgress(status.progress)
+        return
+      }
+      if (status.status === 'complete') {
+        es.close()
+        setProgress(1)
+        getResult(jobId).then(result => onCompleteRef.current(result))
+        return
+      }
+      if (status.status === 'failed') {
+        es.close()
+        setError(status.error ?? 'Processing failed')
+      }
     }
+
+    es.onerror = () => {
+      networkErrors++
+      if (networkErrors >= 3) {
+        es.close()
+        setError('Connection lost — check your network and try again.')
+      }
+    }
+
+    return () => es.close()
   }, [jobId])
 
   if (error) {

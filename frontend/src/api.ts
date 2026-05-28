@@ -84,3 +84,7 @@ export async function getResult(jobId: string): Promise<AnalysisResult> {
 export function getVideoUrl(jobId: string): string {
   return `${BASE}/video/${jobId}`
 }
+
+export function getStreamUrl(jobId: string): string {
+  return `${BASE}/stream/${jobId}`
+}

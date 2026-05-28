@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import CompareColumn, { type CompareColumnHandle } from '../components/CompareColumn'
-import { submitPreview, getStatus, getResult } from '../api'
+import { submitPreview, getResult, getStreamUrl } from '../api'
+import type { JobStatus } from '../types'
 
 type PagePhase = 'setup' | 'analyzing' | 'done'
 
@@ -55,14 +56,8 @@ export default function ComparePage() {
 
   const aRef = useRef<CompareColumnHandle>(null)
   const bRef = useRef<CompareColumnHandle>(null)
-  // Refs mirror state so polling closure always sees current values
-  const jobARef = useRef<JobState>(INIT_JOB)
-  const jobBRef = useRef<JobState>(INIT_JOB)
-  // Tracks job IDs currently downloading results — prevents duplicate getResult calls
+  // Prevents duplicate getResult calls if SSE fires complete more than once
   const fetchingRef = useRef(new Set<string>())
-
-  useEffect(() => { jobARef.current = jobA }, [jobA])
-  useEffect(() => { jobBRef.current = jobB }, [jobB])
 
   const pause = useCallback(() => setIsPlaying(false), [])
 
@@ -101,74 +96,61 @@ export default function ComparePage() {
     setJobB(newB); jobBRef.current = newB
   }
 
-  // Polling — active only while analyzing
+  // SSE for job A
   useEffect(() => {
-    if (pagePhase !== 'analyzing') return
-
-    const tick = () => {
-      const a = jobARef.current
-      const b = jobBRef.current
-      const polls: Promise<void>[] = []
-
-      if (a.jobId && !a.done && !fetchingRef.current.has(a.jobId)) {
-        polls.push(
-          getStatus(a.jobId)
-            .then(async status => {
-              if (status.status === 'complete') {
-                fetchingRef.current.add(a.jobId!)
-                setJobA(j => ({ ...j, progress: 1 }))
-                try {
-                  const result = await getResult(a.jobId!)
-                  aRef.current?.showResults(result, a.jobId!)
-                  setJobA(j => ({ ...j, done: true }))
-                } finally {
-                  fetchingRef.current.delete(a.jobId!)
-                }
-              } else if (status.status === 'failed') {
-                setJobA(j => ({ ...j, error: status.error ?? 'Processing failed', done: true }))
-              } else {
-                setJobA(j => ({ ...j, progress: status.progress ?? 0 }))
-              }
-            })
-            .catch(e => {
-              setJobA(j => ({ ...j, error: e instanceof Error ? e.message : 'Polling failed', done: true }))
-            })
-        )
+    const jid = jobA.jobId
+    if (!jid || jobA.done) return
+    const es = new EventSource(getStreamUrl(jid))
+    es.onmessage = (e) => {
+      const status: JobStatus = JSON.parse(e.data)
+      if (status.status === 'complete') {
+        es.close()
+        if (!fetchingRef.current.has(jid)) {
+          fetchingRef.current.add(jid)
+          setJobA(j => ({ ...j, progress: 1 }))
+          getResult(jid)
+            .then(result => { aRef.current?.showResults(result, jid); setJobA(j => ({ ...j, done: true })) })
+            .catch(err => setJobA(j => ({ ...j, error: err instanceof Error ? err.message : 'Failed to load results', done: true })))
+            .finally(() => fetchingRef.current.delete(jid))
+        }
+      } else if (status.status === 'failed') {
+        es.close()
+        setJobA(j => ({ ...j, error: status.error ?? 'Processing failed', done: true }))
+      } else {
+        setJobA(j => ({ ...j, progress: status.progress ?? 0 }))
       }
-
-      if (b.jobId && !b.done && !fetchingRef.current.has(b.jobId)) {
-        polls.push(
-          getStatus(b.jobId)
-            .then(async status => {
-              if (status.status === 'complete') {
-                fetchingRef.current.add(b.jobId!)
-                setJobB(j => ({ ...j, progress: 1 }))
-                try {
-                  const result = await getResult(b.jobId!)
-                  bRef.current?.showResults(result, b.jobId!)
-                  setJobB(j => ({ ...j, done: true }))
-                } finally {
-                  fetchingRef.current.delete(b.jobId!)
-                }
-              } else if (status.status === 'failed') {
-                setJobB(j => ({ ...j, error: status.error ?? 'Processing failed', done: true }))
-              } else {
-                setJobB(j => ({ ...j, progress: status.progress ?? 0 }))
-              }
-            })
-            .catch(e => {
-              setJobB(j => ({ ...j, error: e instanceof Error ? e.message : 'Polling failed', done: true }))
-            })
-        )
-      }
-
-      void Promise.allSettled(polls)
     }
+    es.onerror = () => setJobA(j => ({ ...j, error: 'Connection lost', done: true }))
+    return () => es.close()
+  }, [jobA.jobId, jobA.done])
 
-    const id = setInterval(tick, 1500)
-    tick()
-    return () => clearInterval(id)
-  }, [pagePhase])
+  // SSE for job B
+  useEffect(() => {
+    const jid = jobB.jobId
+    if (!jid || jobB.done) return
+    const es = new EventSource(getStreamUrl(jid))
+    es.onmessage = (e) => {
+      const status: JobStatus = JSON.parse(e.data)
+      if (status.status === 'complete') {
+        es.close()
+        if (!fetchingRef.current.has(jid)) {
+          fetchingRef.current.add(jid)
+          setJobB(j => ({ ...j, progress: 1 }))
+          getResult(jid)
+            .then(result => { bRef.current?.showResults(result, jid); setJobB(j => ({ ...j, done: true })) })
+            .catch(err => setJobB(j => ({ ...j, error: err instanceof Error ? err.message : 'Failed to load results', done: true })))
+            .finally(() => fetchingRef.current.delete(jid))
+        }
+      } else if (status.status === 'failed') {
+        es.close()
+        setJobB(j => ({ ...j, error: status.error ?? 'Processing failed', done: true }))
+      } else {
+        setJobB(j => ({ ...j, progress: status.progress ?? 0 }))
+      }
+    }
+    es.onerror = () => setJobB(j => ({ ...j, error: 'Connection lost', done: true }))
+    return () => es.close()
+  }, [jobB.jobId, jobB.done])
 
   // Transition to done once all submitted jobs finish successfully.
   // Guard 1: don't fire before uploads resolve (jobIds still null = still in-flight).
