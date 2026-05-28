@@ -3,7 +3,7 @@ crux_cam/
 CruxCam/
 venv/
 .venv/
-
+CLAUDE.md
 # ── Python ─────────────────────────────────────────────────────────────────────
 __pycache__/
 *.pyc

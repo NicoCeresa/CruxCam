@@ -12,8 +12,8 @@ class AnalysisResult:
     efficiency: float
     fps: int = 30
     processed_video_path: Optional[str] = None
-    # Each entry: (frame_num, world_lms_33x3, is_good, com_xyz)
-    # world_lms_33x3 is None when MediaPipe world landmarks unavailable
+    # Each entry: (frame_num, world_lms_33x3, is_good, com_xyz, r_angle, l_angle,
+    #              hip_plane_dist, plane_centroid, plane_normal)
     pose_data_3d: Optional[List] = None
 
 
