@@ -299,16 +299,6 @@ const CompareColumn = forwardRef<CompareColumnHandle, Props>(function CompareCol
             </span>
           </div>
         </div>
-        <div className="flex gap-5 ml-2">
-          <div>
-            <div className="text-forest-light font-display text-xl">{result!.good_frames}</div>
-            <div className="text-cream/40 text-xs tracking-wider uppercase">Open</div>
-          </div>
-          <div>
-            <div className="text-red-400 font-display text-xl">{result!.bad_frames}</div>
-            <div className="text-cream/40 text-xs tracking-wider uppercase">Compressed</div>
-          </div>
-        </div>
       </div>
 
       <div className="card overflow-hidden aspect-video">

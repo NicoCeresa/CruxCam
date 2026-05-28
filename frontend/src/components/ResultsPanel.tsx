@@ -142,17 +142,6 @@ export default function ResultsPanel({ result, videoInfo, jobId, onReset }: Prop
           </div>
         </div>
 
-        <div className="flex gap-8 text-sm font-body">
-          <div>
-            <div className="text-forest-light font-semibold text-2xl font-display">{result.good_frames}</div>
-            <div className="text-cream/40 text-xs tracking-wider uppercase">Arms Open</div>
-          </div>
-          <div>
-            <div className="text-red-400 font-semibold text-2xl font-display">{result.bad_frames}</div>
-            <div className="text-cream/40 text-xs tracking-wider uppercase">Compressed</div>
-          </div>
-        </div>
-
         <div className="ml-auto flex gap-2">
           <button className="btn-ghost text-xs" onClick={onReset}>
             ← New Video
