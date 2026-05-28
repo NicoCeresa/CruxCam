@@ -217,7 +217,7 @@ export default function Skeleton3D({ poseData, currentFrame, isGood }: Props) {
   const planeCentroid = entry?.[7] ?? null
   const planeNormal   = entry?.[8] ?? null
 
-  const { cameraPos, target, wallNormal } = useMemo(() => {
+  const { cameraPos, target } = useMemo(() => {
     let minX = Infinity, maxX = -Infinity
     let minY = Infinity, maxY = -Infinity
     let minZ = Infinity, maxZ = -Infinity
@@ -257,7 +257,6 @@ export default function Skeleton3D({ poseData, currentFrame, isGood }: Props) {
     return {
       target:    [cx, cy, cz] as [number, number, number],
       cameraPos,
-      wallNormal,
     }
   }, [poseData])
 
