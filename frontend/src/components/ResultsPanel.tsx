@@ -4,6 +4,20 @@ import type { AnalysisResult, PoseEntry, VideoInfo } from '../types'
 
 const Skeleton3D = lazy(() => import('./Skeleton3D'))
 
+function angleColor(deg: number | null | undefined): string {
+  if (deg == null) return 'text-cream/40'
+  if (deg > 90) return 'text-forest-light'
+  if (deg > 60) return 'text-yellow-400'
+  return 'text-red-400'
+}
+
+function hipColor(dist: number | null | undefined): string {
+  if (dist == null) return 'text-cream/40'
+  if (dist < 0.3)  return 'text-forest-light'
+  if (dist < 0.6)  return 'text-yellow-400'
+  return 'text-red-400'
+}
+
 function gradeLabel(efficiency: number): { label: string; color: string } {
   if (efficiency >= 70) return { label: 'Solid Form', color: 'text-forest-light' }
   if (efficiency >= 50) return { label: 'Needs Work', color: 'text-yellow-400'   }
@@ -175,6 +189,30 @@ export default function ResultsPanel({ result, videoInfo, jobId, onReset }: Prop
           )}
         </div>
       </div>
+
+      {/* Per-frame metrics */}
+      {currentEntry && (
+        <div className="card p-3 grid grid-cols-3 divide-x divide-navy-lighter text-center">
+          <div className="px-4">
+            <div className="text-cream/40 text-xs tracking-widest uppercase mb-1">L Arm</div>
+            <div className={`font-display text-2xl ${angleColor(currentEntry[5])}`}>
+              {currentEntry[5] != null ? `${Math.round(currentEntry[5])}°` : '—'}
+            </div>
+          </div>
+          <div className="px-4">
+            <div className="text-cream/40 text-xs tracking-widest uppercase mb-1">R Arm</div>
+            <div className={`font-display text-2xl ${angleColor(currentEntry[4])}`}>
+              {currentEntry[4] != null ? `${Math.round(currentEntry[4])}°` : '—'}
+            </div>
+          </div>
+          <div className="px-4">
+            <div className="text-cream/40 text-xs tracking-widest uppercase mb-1">Hips</div>
+            <div className={`font-display text-2xl ${hipColor(currentEntry[6])}`}>
+              {currentEntry[6] != null ? currentEntry[6].toFixed(2) : '—'}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Scrubber + playback */}
       <div className="card p-4 space-y-3">

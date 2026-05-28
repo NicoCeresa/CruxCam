@@ -13,12 +13,16 @@ export interface JobStatus {
   error?: string
 }
 
-// [frame_num, world_lms (33x3) | null, is_good, com_xyz | null]
 export type PoseEntry = [
-  number,
-  [number, number, number][] | null,
-  boolean,
-  [number, number, number] | null,
+  number,                              // 0: frame_num
+  [number, number, number][] | null,   // 1: world_lms (33×3)
+  boolean,                             // 2: is_good
+  [number, number, number] | null,     // 3: com_xyz
+  number | null,                       // 4: r_angle (degrees)
+  number | null,                       // 5: l_angle (degrees)
+  number | null,                       // 6: hip_plane_dist (normalized by torso length)
+  [number, number, number] | null,     // 7: plane_centroid (smoothed contact-point centroid)
+  [number, number, number] | null,     // 8: plane_normal   (smoothed unit normal)
 ]
 
 export interface AnalysisResult {

@@ -19,6 +19,11 @@ def serialize_result(result: AnalysisResult) -> dict:
                 entry[1].tolist() if entry[1] is not None else None,
                 entry[2],
                 list(entry[3]) if entry[3] is not None else None,
+                entry[4] if len(entry) > 4 else None,
+                entry[5] if len(entry) > 5 else None,
+                entry[6] if len(entry) > 6 else None,
+                list(entry[7]) if len(entry) > 7 and entry[7] is not None else None,
+                list(entry[8]) if len(entry) > 8 and entry[8] is not None else None,
             ]
             for entry in result.pose_data_3d
         ]

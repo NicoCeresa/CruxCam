@@ -38,6 +38,72 @@ class PoseAnalyzer:
         self._com_y: Optional[float] = None
         self._com_z: Optional[float] = None
         self._last_results = None
+        self._contact_pts: Optional[np.ndarray] = None   # (4, 3) smoothed
+        self._plane_normal: Optional[np.ndarray] = None  # (3,) smoothed unit vector
+        self._plane_centroid: Optional[np.ndarray] = None
+        self._hip_plane_dist: Optional[float] = None
+
+    # Indices: L wrist=15, R wrist=16, L ankle=27, R ankle=28
+    _CONTACT_IDX  = [15, 16, 27, 28]
+    _CONTACT_ALPHA = 0.1   # EMA weight for contact points (long memory → smooth)
+    _NORMAL_ALPHA  = 0.2   # EMA weight for plane normal   (slightly faster)
+
+    def _update_contact_plane(self, world_lms) -> None:
+        raw_pts = np.array(
+            [[world_lms[i].x, world_lms[i].y, world_lms[i].z] for i in self._CONTACT_IDX],
+            dtype=np.float32,
+        )
+        if self._contact_pts is None:
+            self._contact_pts = raw_pts
+        else:
+            self._contact_pts = (
+                self._CONTACT_ALPHA * raw_pts +
+                (1 - self._CONTACT_ALPHA) * self._contact_pts
+            )
+
+        centroid = self._contact_pts.mean(axis=0)
+        _, _, Vt = np.linalg.svd(self._contact_pts - centroid, full_matrices=False)
+        raw_normal = Vt[-1]
+
+        # Ensure normal consistently points toward the hip (away from the wall)
+        hip_mid = np.array([
+            (world_lms[23].x + world_lms[24].x) / 2,
+            (world_lms[23].y + world_lms[24].y) / 2,
+            (world_lms[23].z + world_lms[24].z) / 2,
+        ], dtype=np.float32)
+        if np.dot(raw_normal, hip_mid - centroid) < 0:
+            raw_normal = -raw_normal
+
+        if self._plane_normal is None:
+            self._plane_normal = raw_normal
+        else:
+            self._plane_normal = (
+                self._NORMAL_ALPHA * raw_normal +
+                (1 - self._NORMAL_ALPHA) * self._plane_normal
+            )
+            self._plane_normal /= np.linalg.norm(self._plane_normal)
+
+        self._plane_centroid = centroid
+
+        dist = float(abs(np.dot(hip_mid - centroid, self._plane_normal)))
+        sho_mid = np.array([
+            (world_lms[11].x + world_lms[12].x) / 2,
+            (world_lms[11].y + world_lms[12].y) / 2,
+            (world_lms[11].z + world_lms[12].z) / 2,
+        ], dtype=np.float32)
+        torso_len = float(np.linalg.norm(sho_mid - hip_mid))
+        self._hip_plane_dist = dist / torso_len if torso_len > 1e-6 else 0.0
+
+    @property
+    def plane_data(self) -> Optional[Tuple]:
+        """(hip_plane_dist, centroid_xyz, normal_xyz) or None if not yet computed."""
+        if self._hip_plane_dist is None or self._plane_centroid is None or self._plane_normal is None:
+            return None
+        return (
+            float(self._hip_plane_dist),
+            tuple(float(v) for v in self._plane_centroid),
+            tuple(float(v) for v in self._plane_normal),
+        )
 
     @property
     def com_3d(self) -> Optional[Tuple[float, float, float]]:
@@ -240,6 +306,7 @@ class PoseAnalyzer:
                 l_bicep_angle <= self.angle_threshold
             )
         self._draw_center_of_mass(img, landmarks, h, w, world_lms, draw=draw)
+        self._update_contact_plane(world_lms)
 
         world_lms_array = np.array([[lm.x, lm.y, lm.z] for lm in world_lms], dtype=np.float32)
 

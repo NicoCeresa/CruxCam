@@ -95,11 +95,17 @@ class VideoProcessor:
                     else:
                         bad_frames += 1
                     if is_inference_frame and world_lms is not None:
+                        plane = self.pose_analyzer.plane_data
                         pose_data_3d.append((
                             frame_count,
                             world_lms,
                             is_good,
-                            self.pose_analyzer.com_3d
+                            self.pose_analyzer.com_3d,
+                            angles[0],          # r_angle
+                            angles[1],          # l_angle
+                            plane[0] if plane else None,  # hip_plane_dist
+                            plane[1] if plane else None,  # centroid (x,y,z)
+                            plane[2] if plane else None,  # normal  (x,y,z)
                         ))
 
                 frame_count += 1

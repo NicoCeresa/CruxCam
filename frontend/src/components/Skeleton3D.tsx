@@ -18,36 +18,60 @@ const CONNECTIONS: [number, number][] = [
 ]
 
 const BONE_COUNT = CONNECTIONS.length
+
 const JOINT_COLOR_GOOD = new THREE.Color('#7AFF50')
 const JOINT_COLOR_BAD  = new THREE.Color('#FF3232')
 const COM_COLOR        = new THREE.Color('#7FC4FF')
+const PLANE_GREEN      = new THREE.Color('#7AFF50')
+const PLANE_YELLOW     = new THREE.Color('#FACC15')
+const PLANE_RED        = new THREE.Color('#FF3232')
+
+function planeColor(dist: number | null): THREE.Color {
+  if (dist == null) return PLANE_GREEN
+  if (dist < 0.3)  return PLANE_GREEN
+  if (dist < 0.6)  return PLANE_YELLOW
+  return PLANE_RED
+}
 
 // ── Inner scene — mutates Three.js objects directly, no React re-renders per frame
 
 interface SceneProps {
-  landmarks: [number, number, number][] | null
-  isGood: boolean
-  com: [number, number, number] | null
-  target: [number, number, number]
+  landmarks:     [number, number, number][] | null
+  isGood:        boolean
+  com:           [number, number, number] | null
+  target:        [number, number, number]
+  planeCentroid: [number, number, number] | null
+  planeNormal:   [number, number, number] | null
+  hipPlaneDist:  number | null
 }
 
-function Scene({ landmarks, isGood, com, target }: SceneProps) {
-  const jointsRef   = useRef<THREE.InstancedMesh>(null!)
-  const jointMatRef = useRef<THREE.MeshBasicMaterial>(null!)
-  const linesGeoRef = useRef<THREE.BufferGeometry>(null!)
-  const linesMatRef = useRef<THREE.LineBasicMaterial>(null!)
-  const comRef      = useRef<THREE.Mesh>(null!)
-  const dummy       = useMemo(() => new THREE.Object3D(), [])
+const _defaultNormal = new THREE.Vector3(0, 0, 1)
+const _q = new THREE.Quaternion()
+const _v = new THREE.Vector3()
 
-  // Initialise bone position buffer once on mount
+function Scene({ landmarks, isGood, com, target, planeCentroid, planeNormal, hipPlaneDist }: SceneProps) {
+  const jointsRef    = useRef<THREE.InstancedMesh>(null!)
+  const jointMatRef  = useRef<THREE.MeshBasicMaterial>(null!)
+  const linesGeoRef  = useRef<THREE.BufferGeometry>(null!)
+  const linesMatRef  = useRef<THREE.LineBasicMaterial>(null!)
+  const comRef       = useRef<THREE.Mesh>(null!)
+  const planeRef     = useRef<THREE.Mesh>(null!)
+  const planeMatRef  = useRef<THREE.MeshBasicMaterial>(null!)
+  const hipLineRef   = useRef<THREE.LineSegments>(null!)
+  const hipLineGeoRef = useRef<THREE.BufferGeometry>(null!)
+  const dummy        = useMemo(() => new THREE.Object3D(), [])
+
   useEffect(() => {
     linesGeoRef.current.setAttribute(
       'position',
       new THREE.BufferAttribute(new Float32Array(BONE_COUNT * 6), 3),
     )
+    hipLineGeoRef.current.setAttribute(
+      'position',
+      new THREE.BufferAttribute(new Float32Array(6), 3),
+    )
   }, [])
 
-  // Update skeleton geometry whenever the frame changes
   useEffect(() => {
     const color = isGood ? JOINT_COLOR_GOOD : JOINT_COLOR_BAD
     jointMatRef.current.color.copy(color)
@@ -61,20 +85,22 @@ function Scene({ landmarks, isGood, com, target }: SceneProps) {
       }
       jointsRef.current.instanceMatrix.needsUpdate = true
       comRef.current.visible = false
+      planeRef.current.visible = false
+      hipLineRef.current.visible = false
       return
     }
 
-    // Joints — one instanced mesh, one draw call
+    // Joints
     for (let i = 0; i < 33; i++) {
       const [x, y, z] = landmarks[i] ?? [0, 0, 0]
-      dummy.position.set(-x, -y, z) // flip Y (MP y-down→Three.js y-up), flip X (mirror)
+      dummy.position.set(-x, -y, z)
       dummy.scale.setScalar(1)
       dummy.updateMatrix()
       jointsRef.current.setMatrixAt(i, dummy.matrix)
     }
     jointsRef.current.instanceMatrix.needsUpdate = true
 
-    // Bones — update buffer attributes directly
+    // Bones
     const attr = linesGeoRef.current.getAttribute('position') as THREE.BufferAttribute
     let vi = 0
     for (const [a, b] of CONNECTIONS) {
@@ -92,7 +118,46 @@ function Scene({ landmarks, isGood, com, target }: SceneProps) {
     } else {
       comRef.current.visible = false
     }
-  }, [landmarks, isGood, com, dummy])
+
+    // Contact plane
+    if (planeCentroid && planeNormal) {
+      const col = planeColor(hipPlaneDist)
+      planeMatRef.current.color.copy(col)
+
+      // Position — apply the same coordinate flip as landmarks
+      planeRef.current.position.set(-planeCentroid[0], -planeCentroid[1], planeCentroid[2])
+
+      // Orient plane to match the smoothed normal
+      _v.set(-planeNormal[0], -planeNormal[1], planeNormal[2]).normalize()
+      _q.setFromUnitVectors(_defaultNormal, _v)
+      planeRef.current.quaternion.copy(_q)
+      planeRef.current.visible = true
+
+      // Hip midpoint (landmarks 23 + 24)
+      const [hLx, hLy, hLz] = landmarks[23] ?? [0, 0, 0]
+      const [hRx, hRy, hRz] = landmarks[24] ?? [0, 0, 0]
+      const hipX = (-hLx + -hRx) / 2
+      const hipY = (-hLy + -hRy) / 2
+      const hipZ = (hLz  + hRz ) / 2
+
+      // Project hip onto plane
+      const cX = -planeCentroid[0], cY = -planeCentroid[1], cZ = planeCentroid[2]
+      const nX = _v.x, nY = _v.y, nZ = _v.z
+      const d  = (hipX - cX) * nX + (hipY - cY) * nY + (hipZ - cZ) * nZ
+      const pX = hipX - d * nX
+      const pY = hipY - d * nY
+      const pZ = hipZ - d * nZ
+
+      const lineAttr = hipLineGeoRef.current.getAttribute('position') as THREE.BufferAttribute
+      lineAttr.setXYZ(0, hipX, hipY, hipZ)
+      lineAttr.setXYZ(1, pX, pY, pZ)
+      lineAttr.needsUpdate = true
+      hipLineRef.current.visible = true
+    } else {
+      planeRef.current.visible = false
+      hipLineRef.current.visible = false
+    }
+  }, [landmarks, isGood, com, planeCentroid, planeNormal, hipPlaneDist, dummy])
 
   return (
     <>
@@ -114,6 +179,18 @@ function Scene({ landmarks, isGood, com, target }: SceneProps) {
         <meshBasicMaterial color={COM_COLOR} />
       </mesh>
 
+      {/* Contact plane — semi-transparent, colored by hip distance */}
+      <mesh ref={planeRef} visible={false} frustumCulled={false}>
+        <planeGeometry args={[1.4, 1.4]} />
+        <meshBasicMaterial ref={planeMatRef} color={PLANE_GREEN} transparent opacity={0.18} side={THREE.DoubleSide} />
+      </mesh>
+
+      {/* Hip-to-plane projection line */}
+      <lineSegments ref={hipLineRef} visible={false} frustumCulled={false}>
+        <bufferGeometry ref={hipLineGeoRef} />
+        <lineBasicMaterial color="#FFFFFF" opacity={0.5} transparent />
+      </lineSegments>
+
       <OrbitControls target={target} makeDefault />
     </>
   )
@@ -122,13 +199,12 @@ function Scene({ landmarks, isGood, com, target }: SceneProps) {
 // ── Public component
 
 interface Props {
-  poseData: PoseEntry[]
+  poseData:     PoseEntry[]
   currentFrame: number
-  isGood: boolean
+  isGood:       boolean
 }
 
 export default function Skeleton3D({ poseData, currentFrame, isGood }: Props) {
-  // Nearest pose entry for the current frame — O(n) but poseData never changes during playback
   const entry = useMemo(() => {
     if (!poseData.length) return null
     return poseData.reduce((best, e) =>
@@ -136,13 +212,15 @@ export default function Skeleton3D({ poseData, currentFrame, isGood }: Props) {
     )
   }, [poseData, currentFrame])
 
-  const landmarks = entry?.[1] ?? null
-  const com       = entry?.[3] ?? null
+  const landmarks    = entry?.[1] ?? null
+  const com          = entry?.[3] ?? null
+  const hipPlaneDist = entry?.[6] ?? null
+  const planeCentroid = entry?.[7] ?? null
+  const planeNormal   = entry?.[8] ?? null
 
-  // Scene bounds computed once from all frames — used for initial camera + OrbitControls target
   const { cameraPos, target } = useMemo(() => {
     let minX = Infinity, maxX = -Infinity
-    let minY = Infinity, maxY = -Infinity // Three.js Y (flipped from MediaPipe)
+    let minY = Infinity, maxY = -Infinity
     let minZ = Infinity, maxZ = -Infinity
 
     for (const [, lms] of poseData) {
@@ -177,6 +255,9 @@ export default function Skeleton3D({ poseData, currentFrame, isGood }: Props) {
         isGood={isGood}
         com={com}
         target={target}
+        planeCentroid={planeCentroid}
+        planeNormal={planeNormal}
+        hipPlaneDist={hipPlaneDist}
       />
     </Canvas>
   )
