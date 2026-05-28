@@ -237,7 +237,7 @@ export default function Skeleton3D({ poseData, currentFrame, isGood }: Props) {
         }
       }
       const n = entry[8]
-      if (n) { nx += -n[0]; ny += -n[1]; nz += n[2]; nCount++ }
+      if (n) { nx += n[0]; ny += n[1]; nz += n[2]; nCount++ }
     }
 
     const cx   = (minX + maxX) / 2
@@ -252,8 +252,8 @@ export default function Skeleton3D({ poseData, currentFrame, isGood }: Props) {
     let wallNormal: [number, number, number] | null = null
     if (nCount > 0) {
       const len = Math.sqrt(nx * nx + ny * ny + nz * nz)
-      wallNormal = [nx / len, ny / len, nz / len]
-      cameraPos = [cx + wallNormal[0] * d, cy + wallNormal[1] * d, cz + wallNormal[2] * d]
+      wallNormal = [nx / len, ny / len, nz / len]  // MediaPipe coords — Scene flips once
+      cameraPos = [cx + (-wallNormal[0]) * d, cy + (-wallNormal[1]) * d, cz + wallNormal[2] * d]
     } else {
       cameraPos = [cx, cy + d * 0.3, cz + d]
     }
