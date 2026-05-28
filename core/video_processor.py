@@ -25,32 +25,15 @@ class VideoProcessor:
         start_frame: int = 0,
         end_frame: Optional[int] = None,
         frame_skip: int = 1,
+        inference_path: Optional[str] = None,
     ) -> AnalysisResult:
         if not Path(input_path).exists():
             raise FileNotFoundError(f"Input video not found: {input_path}")
 
-        cap = cv2.VideoCapture(input_path)
+        read_path = inference_path or input_path
+        cap = cv2.VideoCapture(read_path)
         if not cap.isOpened():
-            raise RuntimeError(f"Could not open video file: {input_path}")
-
-        fps        = int(cap.get(cv2.CAP_PROP_FPS))
-        raw_total  = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        height     = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-
-        # Pre-scale to 1080p for inference only; original is kept for the output stream copy.
-        scaled_tmp: Optional[str] = None
-        if height > 1080:
-            _ffmpeg = shutil.which('ffmpeg') or 'ffmpeg'
-            _sf = tempfile.NamedTemporaryFile(delete=False, suffix='.mp4', prefix='cruxcam_scale_')
-            _sf.close()
-            scaled_tmp = _sf.name
-            subprocess.run(
-                [_ffmpeg, '-y', '-i', input_path, '-vf', 'scale=-2:1080',
-                 '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '18', scaled_tmp],
-                check=True, capture_output=True,
-            )
-            cap.release()
-            cap = cv2.VideoCapture(scaled_tmp)
+            raise RuntimeError(f"Could not open video file: {read_path}")
 
         start_frame  = max(0, start_frame)
         end_frame    = min(end_frame, raw_total) if end_frame is not None else raw_total
@@ -131,8 +114,6 @@ class VideoProcessor:
 
         finally:
             cap.release()
-            if scaled_tmp:
-                Path(scaled_tmp).unlink(missing_ok=True)
 
         if reader_exc[0]:
             raise reader_exc[0]

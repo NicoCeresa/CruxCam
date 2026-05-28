@@ -222,14 +222,19 @@ export default function Skeleton3D({ poseData, currentFrame, isGood }: Props) {
     let minX = Infinity, maxX = -Infinity
     let minY = Infinity, maxY = -Infinity
     let minZ = Infinity, maxZ = -Infinity
+    let nx = 0, ny = 0, nz = 0, nCount = 0
 
-    for (const [, lms] of poseData) {
-      if (!lms) continue
-      for (const [x, y, z] of lms) {
-        if (-x < minX) minX = -x; if (-x > maxX) maxX = -x
-        if (-y < minY) minY = -y; if (-y > maxY) maxY = -y
-        if (z  < minZ) minZ = z;  if (z  > maxZ) maxZ = z
+    for (const entry of poseData) {
+      const lms = entry[1]
+      if (lms) {
+        for (const [x, y, z] of lms) {
+          if (-x < minX) minX = -x; if (-x > maxX) maxX = -x
+          if (-y < minY) minY = -y; if (-y > maxY) maxY = -y
+          if (z  < minZ) minZ = z;  if (z  > maxZ) maxZ = z
+        }
       }
+      const n = entry[8]
+      if (n) { nx += -n[0]; ny += -n[1]; nz += n[2]; nCount++ }
     }
 
     const cx   = (minX + maxX) / 2
@@ -238,9 +243,19 @@ export default function Skeleton3D({ poseData, currentFrame, isGood }: Props) {
     const span = Math.max(maxX - minX, maxY - minY, maxZ - minZ, 0.5)
     const d    = span * 1.8
 
+    // Use the averaged contact-plane normal (wall-perpendicular direction) to
+    // position the camera behind the climber at the true wall angle.
+    let cameraPos: [number, number, number]
+    if (nCount > 0) {
+      const len = Math.sqrt(nx * nx + ny * ny + nz * nz)
+      cameraPos = [cx + (nx / len) * d, cy + (ny / len) * d, cz + (nz / len) * d]
+    } else {
+      cameraPos = [cx, cy + d * 0.3, cz + d]
+    }
+
     return {
       target:    [cx, cy, cz] as [number, number, number],
-      cameraPos: [cx + d * 0.6, cy + d * 0.35, cz + d] as [number, number, number],
+      cameraPos,
     }
   }, [poseData])
 

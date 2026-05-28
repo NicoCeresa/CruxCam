@@ -112,22 +112,6 @@ class PoseAnalyzer:
             return None
         return (float(self._com_x), float(self._com_y), float(self._com_z))
 
-    def _get_arm_landmarks_3d(
-        self,
-        world_landmarks,
-        side: str = 'right'
-    ) -> Tuple[Tuple[float, float, float], Tuple[float, float, float], Tuple[float, float, float]]:
-        """Extract arm landmarks in metric world space (meters, hip-relative)."""
-        prefix = 'RIGHT' if side.lower() == 'right' else 'LEFT'
-        def lm(name):
-            pt = world_landmarks[getattr(self.mp_pose.PoseLandmark, name).value]
-            return (pt.x, pt.y, pt.z)
-        return (
-            lm(f'{prefix}_SHOULDER'),
-            lm(f'{prefix}_ELBOW'),
-            lm(f'{prefix}_WRIST'),
-        )
-
     def _calculate_angle(self, v1: np.ndarray, v2: np.ndarray) -> float:
         """Calculate the inner angle between two vectors (N-dimensional)."""
         norm1 = np.linalg.norm(v1)
@@ -287,16 +271,15 @@ class PoseAnalyzer:
         landmarks = results.pose_landmarks.landmark
         world_lms = results.pose_world_landmarks.landmark
 
-        r_s, r_e, r_w = self._get_arm_landmarks_3d(world_lms, 'right')
-        l_s, l_e, l_w = self._get_arm_landmarks_3d(world_lms, 'left')
-        r_bicep_angle = self._calculate_angle(
-            np.array(r_s) - np.array(r_e),
-            np.array(r_w) - np.array(r_e)
-        )
-        l_bicep_angle = self._calculate_angle(
-            np.array(l_s) - np.array(l_e),
-            np.array(l_w) - np.array(l_e)
-        )
+        # Arm angles use 2D pixel-space landmarks — MediaPipe's 3D world estimates
+        # are unreliable for non-standard poses and produce incorrect angles.
+        LP = self.mp_pose.PoseLandmark
+        def lm2d(lp): return np.array([landmarks[lp.value].x * w, landmarks[lp.value].y * h])
+
+        r_s = lm2d(LP.RIGHT_SHOULDER); r_e = lm2d(LP.RIGHT_ELBOW); r_w = lm2d(LP.RIGHT_WRIST)
+        l_s = lm2d(LP.LEFT_SHOULDER);  l_e = lm2d(LP.LEFT_ELBOW);  l_w = lm2d(LP.LEFT_WRIST)
+        r_bicep_angle = self._calculate_angle(r_s - r_e, r_w - r_e)
+        l_bicep_angle = self._calculate_angle(l_s - l_e, l_w - l_e)
 
         if draw:
             is_good_frame = self._draw_landmarks_and_classify(img, results, r_bicep_angle, l_bicep_angle)

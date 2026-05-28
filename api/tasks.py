@@ -2,8 +2,6 @@ import logging
 from pathlib import Path
 from typing import Callable, Optional
 
-import numpy as np
-
 from core.pose_analyzer import AnalysisResult, PoseAnalyzer
 from core.video_processor import VideoProcessor
 
@@ -37,28 +35,6 @@ def serialize_result(result: AnalysisResult) -> dict:
     }
 
 
-def deserialize_result(data: dict) -> AnalysisResult:
-    pose_data = None
-    if data.get("pose_data_3d"):
-        pose_data = [
-            (
-                entry[0],
-                np.array(entry[1], dtype=np.float32) if entry[1] is not None else None,
-                entry[2],
-                tuple(entry[3]) if entry[3] is not None else None,
-            )
-            for entry in data["pose_data_3d"]
-        ]
-    return AnalysisResult(
-        good_frames=data["good_frames"],
-        bad_frames=data["bad_frames"],
-        efficiency=data["efficiency"],
-        fps=data.get("fps", 30),
-        processed_video_path=data.get("processed_video_path"),
-        pose_data_3d=pose_data,
-    )
-
-
 def process_video(
     job_id: str,
     input_path: str,
@@ -68,6 +44,7 @@ def process_video(
     end_frame: Optional[int],
     frame_skip: int,
     set_state: Callable[[str, dict], None],
+    inference_path: Optional[str] = None,
 ) -> None:
     log.info("job start  id=%s  input=%s  exists=%s", job_id, input_path, Path(input_path).exists())
     input_file = Path(input_path)
@@ -89,6 +66,7 @@ def process_video(
             start_frame=start_frame,
             end_frame=end_frame,
             frame_skip=frame_skip,
+            inference_path=inference_path,
         )
         serialized = serialize_result(result)
         input_file.unlink(missing_ok=True)
@@ -103,3 +81,5 @@ def process_video(
             processor._pose.close()
         except Exception:
             pass
+        if inference_path:
+            Path(inference_path).unlink(missing_ok=True)

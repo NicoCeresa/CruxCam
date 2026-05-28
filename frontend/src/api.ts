@@ -52,28 +52,6 @@ export function getPreviewFrameUrl(previewId: string, n: number): string {
   return `${BASE}/frame/${previewId}?n=${n}`
 }
 
-export async function uploadVideo(
-  file: File,
-  previewId: string,
-  angleThreshold: number,
-  startFrame: number,
-  endFrame: number,
-): Promise<string> {
-  const form = new FormData()
-  form.append('video', file)
-  const params = new URLSearchParams({
-    angle_threshold: String(angleThreshold),
-    start_frame: String(startFrame),
-    end_frame: String(endFrame),
-    preview_id: previewId,
-  })
-  const res = await checkOk(
-    await fetch(`${BASE}/upload?${params}`, { method: 'POST', body: form }),
-  )
-  const { job_id } = await res.json()
-  return job_id as string
-}
-
 export async function submitPreview(
   previewId: string,
   angleThreshold: number,
@@ -105,8 +83,4 @@ export async function getResult(jobId: string): Promise<AnalysisResult> {
 
 export function getVideoUrl(jobId: string): string {
   return `${BASE}/video/${jobId}`
-}
-
-export function getSkeletonVideoUrl(jobId: string): string {
-  return `${BASE}/skeleton_video/${jobId}`
 }

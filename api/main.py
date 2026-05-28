@@ -1,5 +1,6 @@
 import json
 import os
+import subprocess
 import time
 import uuid
 import shutil
@@ -15,7 +16,7 @@ from fastapi import FastAPI, File, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
 
-from .tasks import deserialize_result, process_video
+from .tasks import process_video
 
 app = FastAPI(title="CruxCam API")
 
@@ -45,6 +46,7 @@ _executor = ThreadPoolExecutor(max_workers=1)
 
 # ── State ──────────────────────────────────────────────────────────────────────
 _preview_paths: dict[str, Path] = {}
+_scaled_paths:  dict[str, Path] = {}   # preview_id -> 1080p-scaled copy for inference
 _upload_times:  dict[str, list[float]] = defaultdict(list)
 
 
@@ -61,21 +63,45 @@ def _get_job(job_id: str) -> Optional[dict]:
 
 def _submit_job(job_id: str, input_path: str, output_path: str,
                 angle_threshold: int, start_frame: int,
-                end_frame: Optional[int], frame_skip: int) -> None:
+                end_frame: Optional[int], frame_skip: int,
+                inference_path: Optional[str] = None) -> None:
     _set_job(job_id, {"status": "pending"})
     _executor.submit(
         process_video,
         job_id, input_path, output_path,
         angle_threshold, start_frame, end_frame, frame_skip,
-        _set_job,
+        _set_job, inference_path,
     )
+
+
+def _scale_for_inference(path: Path, preview_id: str) -> None:
+    """If path is taller than 1080p, create a scaled copy and register it under preview_id."""
+    cap = cv2.VideoCapture(str(path))
+    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    cap.release()
+    if height <= 1080:
+        return
+    ffmpeg_bin = shutil.which('ffmpeg') or 'ffmpeg'
+    fd, tmp = tempfile.mkstemp(suffix='.mp4', prefix='cruxcam_scaled_', dir=TMP)
+    os.close(fd)
+    tmp_path = Path(tmp)
+    try:
+        subprocess.run(
+            [ffmpeg_bin, '-y', '-i', str(path), '-vf', 'scale=-2:1080',
+             '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '18', str(tmp_path)],
+            check=True, capture_output=True,
+        )
+        _scaled_paths[preview_id] = tmp_path
+    except Exception:
+        tmp_path.unlink(missing_ok=True)
+        raise
 
 
 # ── File helpers ───────────────────────────────────────────────────────────────
 
 def _cleanup_old_files() -> None:
     cutoff = time.time() - FILE_TTL
-    for pattern in ("cruxcam_upload_*", "cruxcam_output_*", "cruxcam_preview_*", "cruxcam_skeleton_*"):
+    for pattern in ("cruxcam_upload_*", "cruxcam_output_*", "cruxcam_preview_*", "cruxcam_scaled_*"):
         for path in TMP.glob(pattern):
             try:
                 if path.is_file() and path.stat().st_mtime < cutoff:
@@ -84,6 +110,8 @@ def _cleanup_old_files() -> None:
                 pass
     for pid in [k for k, v in _preview_paths.items() if not v.exists()]:
         _preview_paths.pop(pid, None)
+    for pid in [k for k, v in _scaled_paths.items() if not v.exists()]:
+        _scaled_paths.pop(pid, None)
     now = time.time()
     for ip in list(_upload_times):
         _upload_times[ip] = [t for t in _upload_times[ip] if now - t < 60]
@@ -148,6 +176,7 @@ def sample_info():
 
     try:
         info = _read_video_info(preview_path)
+        _scale_for_inference(preview_path, preview_id)
     except HTTPException:
         preview_path.unlink(missing_ok=True)
         _preview_paths.pop(preview_id, None)
@@ -180,12 +209,14 @@ def sample_upload(
     fd, output_tmp = tempfile.mkstemp(suffix=".mp4", prefix="cruxcam_output_", dir=TMP)
     os.close(fd)
 
+    scaled_path = _scaled_paths.pop(preview_id, None) if preview_id else None
     if preview_id:
         p = _preview_paths.pop(preview_id, None)
         if p:
             p.unlink(missing_ok=True)
 
-    _submit_job(job_id, str(input_path), output_tmp, angle_threshold, start_frame, end_frame, frame_skip)
+    _submit_job(job_id, str(input_path), output_tmp, angle_threshold, start_frame, end_frame, frame_skip,
+                inference_path=str(scaled_path) if scaled_path else None)
     return {"job_id": job_id}
 
 
@@ -208,6 +239,7 @@ async def video_info(request: Request, video: UploadFile = File(...)):
 
     try:
         info = _read_video_info(preview_path)
+        _scale_for_inference(preview_path, preview_id)
     except HTTPException:
         preview_path.unlink(missing_ok=True)
         _preview_paths.pop(preview_id, None)
@@ -263,7 +295,9 @@ def submit_preview(
     fd, output_tmp = tempfile.mkstemp(suffix=".mp4", prefix="cruxcam_output_", dir=TMP)
     os.close(fd)
 
-    _submit_job(job_id, str(input_path), output_tmp, angle_threshold, start_frame, end_frame, frame_skip)
+    scaled_path = _scaled_paths.pop(preview_id, None)
+    _submit_job(job_id, str(input_path), output_tmp, angle_threshold, start_frame, end_frame, frame_skip,
+                inference_path=str(scaled_path) if scaled_path else None)
     return {"job_id": job_id}
 
 
@@ -303,23 +337,3 @@ def get_video(job_id: str):
     if not video_path or not Path(video_path).exists():
         raise HTTPException(status_code=404, detail="Video file not found")
     return FileResponse(video_path, media_type="video/mp4")
-
-
-@app.get("/skeleton_video/{job_id}")
-def get_skeleton_video(job_id: str):
-    data = _get_job(job_id)
-    if not data or data["status"] != "complete":
-        raise HTTPException(status_code=404, detail="Job not complete")
-
-    result_data = data["result"]
-    if not result_data.get("pose_data_3d"):
-        raise HTTPException(status_code=404, detail="No pose data available")
-
-    cache_path = TMP / f"cruxcam_skeleton_{job_id}.mp4"
-    if not cache_path.exists():
-        from core.skeleton_renderer import render_skeleton_video
-        result = deserialize_result(result_data)
-        render_skeleton_video(result.pose_data_3d, result.fps, str(cache_path))
-
-    return FileResponse(str(cache_path), media_type="video/mp4",
-                        filename=f"cruxcam_3d_{job_id}.mp4")
