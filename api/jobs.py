@@ -100,7 +100,6 @@ def serialize_result(result: AnalysisResult) -> dict:
         "bad_frames": result.bad_frames,
         "efficiency": result.efficiency,
         "fps": result.fps,
-        "processed_video_path": result.processed_video_path,
         "pose_data_3d": pose_data,
     }
 
@@ -126,7 +125,7 @@ def run_job(
     input_file = Path(input_path)
 
     if not input_file.exists():
-        set_state(job_id, {"status": "failed", "error": f"Input file missing: {input_path}"})
+        set_state(job_id, {"status": "failed", "error": "Input file missing — please re-upload the video"})
         return
 
     # Create a fresh processor per job — model is loaded here and released in finally.
@@ -146,11 +145,14 @@ def run_job(
         )
         serialized = serialize_result(result)
         input_file.unlink(missing_ok=True)
-        set_state(job_id, {"status": "complete", "result": serialized})
-    except Exception as exc:
+        # video_path stays server-side: /video reads it, /result never returns it.
+        set_state(job_id, {"status": "complete", "result": serialized,
+                           "video_path": result.processed_video_path})
+    except Exception:
         input_file.unlink(missing_ok=True)
+        # Details (paths, ffmpeg output) go to the log, not to the client.
         log.exception("job failed  id=%s", job_id)
-        set_state(job_id, {"status": "failed", "error": str(exc).splitlines()[0]})
+        set_state(job_id, {"status": "failed", "error": "Processing failed — the video could not be analyzed"})
     finally:
         # Explicitly close MediaPipe to release native memory immediately.
         try:

@@ -3,6 +3,7 @@
 Each getter is cached, so the app uses one instance of each. Tests replace them with
 `app.dependency_overrides[get_x] = ...`.
 """
+import threading
 import time
 from collections import defaultdict
 from concurrent.futures import Executor, ThreadPoolExecutor
@@ -18,25 +19,28 @@ from .previews import PreviewStore
 
 
 class RateLimiter:
-    """Per-IP sliding one-minute window."""
+    """Per-IP sliding one-minute window. Thread-safe (shared by request threads)."""
 
     def __init__(self, limit: int):
         self._limit = limit
         self._times: Dict[str, List[float]] = defaultdict(list)
+        self._lock = threading.Lock()
 
     def check(self, ip: str) -> None:
         now = time.time()
-        self._times[ip] = [t for t in self._times[ip] if now - t < 60]
-        if len(self._times[ip]) >= self._limit:
-            raise HTTPException(status_code=429, detail="Too many requests — try again in a minute")
-        self._times[ip].append(now)
+        with self._lock:
+            self._times[ip] = [t for t in self._times[ip] if now - t < 60]
+            if len(self._times[ip]) >= self._limit:
+                raise HTTPException(status_code=429, detail="Too many requests — try again in a minute")
+            self._times[ip].append(now)
 
     def prune(self) -> None:
         now = time.time()
-        for ip in list(self._times):
-            self._times[ip] = [t for t in self._times[ip] if now - t < 60]
-            if not self._times[ip]:
-                del self._times[ip]
+        with self._lock:
+            for ip in list(self._times):
+                self._times[ip] = [t for t in self._times[ip] if now - t < 60]
+                if not self._times[ip]:
+                    del self._times[ip]
 
 
 @lru_cache

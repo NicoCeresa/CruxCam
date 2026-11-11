@@ -3,6 +3,7 @@ import os
 import shutil
 import subprocess
 import tempfile
+import threading
 import time
 import uuid
 from pathlib import Path
@@ -34,7 +35,11 @@ def read_video_info(path: Path) -> dict:
 
 
 class PreviewStore:
-    """In-process registry of preview files, keyed by preview_id."""
+    """In-process registry of preview files, keyed by preview_id.
+
+    Shared by request threads (sync endpoints run in FastAPI's threadpool), so registry
+    access is guarded by a lock.
+    """
 
     _PATTERNS = ("cruxcam_upload_*", "cruxcam_output_*", "cruxcam_preview_*", "cruxcam_scaled_*")
 
@@ -43,6 +48,7 @@ class PreviewStore:
         self._ttl = ttl
         self._previews: Dict[str, Path] = {}
         self._scaled:   Dict[str, Path] = {}   # preview_id -> 1080p-scaled copy for inference
+        self._lock = threading.Lock()
 
     def new_temp(self, prefix: str, suffix: str) -> Path:
         fd, tmp = tempfile.mkstemp(suffix=suffix, prefix=prefix, dir=self._tmp)
@@ -56,24 +62,28 @@ class PreviewStore:
         """
         preview_id = str(uuid.uuid4())
         path = self.new_temp("cruxcam_preview_", suffix)
-        self._previews[preview_id] = path
+        with self._lock:
+            self._previews[preview_id] = path
         try:
             write(path)
             info = read_video_info(path)
             self._scale_for_inference(path, preview_id)
         except Exception:
             path.unlink(missing_ok=True)
-            self._previews.pop(preview_id, None)
+            with self._lock:
+                self._previews.pop(preview_id, None)
             raise
         return {**info, "preview_id": preview_id}
 
     def get(self, preview_id: str) -> Optional[Path]:
-        path = self._previews.get(preview_id)
+        with self._lock:
+            path = self._previews.get(preview_id)
         return path if path and path.exists() else None
 
     def take(self, preview_id: str) -> Tuple[Optional[Path], Optional[Path]]:
         """Remove a preview from the registry, returning (preview_path, scaled_path)."""
-        return self._previews.pop(preview_id, None), self._scaled.pop(preview_id, None)
+        with self._lock:
+            return self._previews.pop(preview_id, None), self._scaled.pop(preview_id, None)
 
     def frame_jpeg(self, preview_id: str, n: int) -> Optional[bytes]:
         """JPEG of frame n, or None if the preview doesn't exist. Raises VideoReadError if unreadable."""
@@ -100,9 +110,10 @@ class PreviewStore:
                         path.unlink(missing_ok=True)
                 except OSError:
                     pass
-        for registry in (self._previews, self._scaled):
-            for pid in [k for k, v in registry.items() if not v.exists()]:
-                registry.pop(pid, None)
+        with self._lock:
+            for registry in (self._previews, self._scaled):
+                for pid in [k for k, v in registry.items() if not v.exists()]:
+                    registry.pop(pid, None)
 
     def _scale_for_inference(self, path: Path, preview_id: str) -> None:
         """If path is taller than 1080p, create a scaled copy and register it under preview_id."""
@@ -119,7 +130,8 @@ class PreviewStore:
                  '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '18', str(tmp_path)],
                 check=True, capture_output=True,
             )
-            self._scaled[preview_id] = tmp_path
+            with self._lock:
+                self._scaled[preview_id] = tmp_path
         except Exception:
             tmp_path.unlink(missing_ok=True)
             raise

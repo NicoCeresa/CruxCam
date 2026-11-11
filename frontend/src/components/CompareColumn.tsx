@@ -4,7 +4,7 @@ import { getVideoInfo, getVideoUrl } from '../api'
 import TrimControls from './TrimControls'
 import StatTile from './StatTile'
 import Alert from './Alert'
-import { isToooDark } from '../utils/checkBrightness'
+import { isTooDark } from '../utils/checkBrightness'
 import { angleStatus, gradeLabel, hipStatus, STATUS_TEXT } from '../utils/metrics'
 import type { AnalysisResult, PoseEntry, VideoInfo } from '../types'
 
@@ -75,7 +75,7 @@ const CompareColumn = forwardRef<CompareColumnHandle, Props>(function CompareCol
       setInfo(i)
       setTrimStart(0)
       setTrimEnd(i.total_frames - 1)
-      const dark = await isToooDark(i.preview_id, i.total_frames)
+      const dark = await isTooDark(i.preview_id, i.total_frames)
       setDarkWarning(dark)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to read video')
