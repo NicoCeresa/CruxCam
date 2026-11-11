@@ -7,14 +7,20 @@ import tempfile
 import threading
 from pathlib import Path
 from typing import Optional, Callable, Generator
+from .camera_motion import CameraMotion
 from .pose_analyzer import PoseAnalyzer
 from .results import AnalysisResult, FrameResult
 
 
 class VideoProcessor:
 
-    def __init__(self, pose_analyzer: Optional[PoseAnalyzer] = None):
+    def __init__(
+        self,
+        pose_analyzer: Optional[PoseAnalyzer] = None,
+        camera_motion: Optional[CameraMotion] = None,
+    ):
         self.pose_analyzer = pose_analyzer or PoseAnalyzer()
+        self.camera_motion = camera_motion   # None → camera motion is not estimated
 
     def close(self) -> None:
         """Release the analyzer's model resources."""
@@ -51,6 +57,8 @@ class VideoProcessor:
             tmp.close()
 
         self.pose_analyzer.reset()
+        if self.camera_motion:
+            self.camera_motion.reset()
 
         good_frames = 0
         bad_frames  = 0
@@ -93,6 +101,9 @@ class VideoProcessor:
                 is_good, angles, world_lms = self.pose_analyzer.analyze_frame(
                     frame, run_inference=is_inference_frame
                 )
+                if is_inference_frame and self.camera_motion:
+                    # Climber bbox from this frame's pose keeps features off the climber.
+                    self.camera_motion.update(frame, frame_count, self.pose_analyzer.climber_bbox)
 
                 if angles is not None:
                     if is_good:
@@ -158,7 +169,8 @@ class VideoProcessor:
             efficiency=efficiency,
             fps=fps,
             processed_video_path=output_path,
-            pose_data_3d=pose_data_3d if pose_data_3d else None
+            pose_data_3d=pose_data_3d if pose_data_3d else None,
+            camera=self.camera_motion.summary() if self.camera_motion else None,
         )
 
     def get_video_info(self, video_path: str) -> dict:
