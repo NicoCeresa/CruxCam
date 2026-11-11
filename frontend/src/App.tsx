@@ -49,7 +49,7 @@ function ResultsPage() {
   }
 
   return (
-    <Suspense fallback={<div className="text-cream/50 text-center py-20">Loading results…</div>}>
+    <Suspense fallback={<div className="text-muted text-center py-20">Loading results…</div>}>
       <ResultsPanel
         result={result}
         videoInfo={videoInfo}

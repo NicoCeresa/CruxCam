@@ -1,16 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { LoaderCircle } from 'lucide-react'
 import { getResult, getStreamUrl } from '../api'
 import type { AnalysisResult, JobStatus } from '../types'
-
-const MESSAGES = [
-  'Reading the route…',
-  'Analyzing movement…',
-  'Mapping your beta…',
-  'Calculating efficiency…',
-  'Processing footage…',
-  'Tracking landmarks…',
-]
 
 interface Props {
   jobId: string
@@ -26,16 +18,6 @@ export default function ProcessingView({ jobId, onComplete }: Props) {
   // Keep a stable ref to onComplete so the polling closure never goes stale
   const onCompleteRef = useRef(onComplete)
   onCompleteRef.current = onComplete
-
-  // Cycle status messages independently of polling
-  const msgIdxRef = useRef(0)
-  useEffect(() => {
-    const id = setInterval(() => {
-      msgIdxRef.current = (msgIdxRef.current + 1) % MESSAGES.length
-      setStatusText(MESSAGES[msgIdxRef.current])
-    }, 2500)
-    return () => clearInterval(id)
-  }, [])
 
   // SSE — one persistent connection per job replacing the polling interval
   useEffect(() => {
@@ -64,12 +46,14 @@ export default function ProcessingView({ jobId, onComplete }: Props) {
           setError('Processing stalled — the worker may have run out of memory. Try a shorter clip.')
           return
         }
+        setStatusText('Analyzing frames…')
         setProgress(status.progress)
         return
       }
       if (status.status === 'complete') {
         es.close()
         setProgress(1)
+        setStatusText('Loading results…')
         getResult(jobId).then(result => onCompleteRef.current(result))
         return
       }
@@ -93,7 +77,7 @@ export default function ProcessingView({ jobId, onComplete }: Props) {
   if (error) {
     return (
       <div className="max-w-md mx-auto text-center space-y-4 py-20">
-        <p className="text-red-400 text-sm">{error}</p>
+        <p className="text-danger text-sm">{error}</p>
         <button className="btn-ghost" onClick={() => navigate('/')}>
           Try again
         </button>
@@ -103,11 +87,12 @@ export default function ProcessingView({ jobId, onComplete }: Props) {
 
   return (
     <div className="max-w-md mx-auto py-20 space-y-8">
-      <div className="text-center space-y-2">
-        <h2 className="font-display text-3xl tracking-widest uppercase text-cream">
-          On the Wall
+      <div className="text-center space-y-3">
+        <LoaderCircle size={32} className="mx-auto text-terracotta animate-spin" aria-hidden />
+        <h2 className="font-display text-3xl font-bold tracking-wide uppercase text-cream">
+          Analyzing your climb
         </h2>
-        <p className="text-cream/50 text-sm">{statusText}</p>
+        <p className="text-muted text-sm" aria-live="polite">{statusText}</p>
       </div>
 
       <div className="space-y-2">
@@ -117,17 +102,9 @@ export default function ProcessingView({ jobId, onComplete }: Props) {
             style={{ width: `${Math.round(progress * 100)}%` }}
           />
         </div>
-        <div className="flex justify-between text-xs text-cream/30 font-body">
-          <span>{Math.round(progress * 100)}%</span>
-          <span>Analyzing frames</span>
+        <div className="text-xs text-muted font-body tabular-nums text-right">
+          {Math.round(progress * 100)}%
         </div>
-      </div>
-
-      <div className="flex justify-center">
-        <svg viewBox="0 0 60 60" className="w-12 h-12 text-brown-light animate-spin" style={{ animationDuration: '3s' }}>
-          <circle cx="30" cy="30" r="20" stroke="currentColor" strokeWidth="3" fill="none" strokeDasharray="30 95" strokeLinecap="round" />
-          <circle cx="30" cy="30" r="12" stroke="currentColor" strokeWidth="2" fill="none" strokeDasharray="18 57" strokeLinecap="round" strokeDashoffset="20" />
-        </svg>
       </div>
     </div>
   )

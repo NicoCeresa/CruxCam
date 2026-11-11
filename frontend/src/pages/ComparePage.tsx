@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { Pause, Play } from 'lucide-react'
 import CompareColumn, { type CompareColumnHandle } from '../components/CompareColumn'
 import { submitPreview, getResult, getStreamUrl } from '../api'
 import type { JobStatus } from '../types'
@@ -21,15 +22,15 @@ function JobProgressBar({ job, label }: { job: JobState; label: string }) {
   return (
     <div className="space-y-1.5">
       <div className="flex items-center justify-between text-xs">
-        <span className="text-cream/60 font-body tracking-wider uppercase">{label}</span>
+        <span className="label">{label}</span>
         {job.error ? (
-          <span className="text-red-400 font-body">{job.error}</span>
+          <span className="text-danger font-body">{job.error}</span>
         ) : job.progress >= 1 && !job.done ? (
-          <span className="text-cream/40">Finalizing…</span>
+          <span className="text-muted">Finalizing…</span>
         ) : indeterminate ? (
-          <span className="text-cream/40">Processing…</span>
+          <span className="text-muted">Processing…</span>
         ) : (
-          <span className="text-cream/40 tabular-nums">{Math.round(job.progress * 100)}%</span>
+          <span className="text-muted tabular-nums">{Math.round(job.progress * 100)}%</span>
         )}
       </div>
       <div className="h-1.5 bg-navy-lighter rounded-full overflow-hidden relative">
@@ -37,7 +38,7 @@ function JobProgressBar({ job, label }: { job: JobState; label: string }) {
           <div className="absolute h-full w-1/3 rounded-full bg-terracotta animate-bar-slide" />
         ) : (
           <div
-            className={`h-full rounded-full transition-all duration-300 ${job.error ? 'bg-red-400' : 'bg-terracotta'}`}
+            className={`h-full rounded-full transition-all duration-300 ${job.error ? 'bg-danger' : 'bg-terracotta'}`}
             style={{ width: `${Math.round(job.progress * 100)}%` }}
           />
         )}
@@ -182,8 +183,8 @@ export default function ComparePage() {
   return (
     <div className="space-y-6">
       <div className="text-center space-y-1">
-        <h1 className="font-display text-4xl tracking-widest uppercase text-cream">Compare</h1>
-        <p className="text-cream/50 text-sm font-body">
+        <h1 className="font-display text-4xl font-bold tracking-wide uppercase text-cream">Compare</h1>
+        <p className="text-muted text-sm font-body">
           Analyze two clips side by side to compare technique and efficiency.
         </p>
       </div>
@@ -201,10 +202,10 @@ export default function ComparePage() {
         return (
           <div className="card p-8 space-y-6 max-w-md mx-auto">
             <div className="text-center space-y-2">
-              <div className="font-display text-2xl tracking-widest uppercase text-cream">
-                {allFailed ? 'Upload Failed' : 'Analyzing Footage'}
+              <div className="font-display text-2xl font-bold tracking-wide uppercase text-cream">
+                {allFailed ? 'Upload failed' : 'Analyzing footage'}
               </div>
-              <p className="text-cream/40 text-sm font-body">
+              <p className="text-muted text-sm font-body">
                 {allFailed
                   ? 'Could not start processing — re-drop your videos and try again.'
                   : allFinalizing
@@ -218,7 +219,7 @@ export default function ComparePage() {
             </div>
             {allFailed && (
               <button className="btn-ghost w-full" onClick={handleReset}>
-                Try Again
+                Try again
               </button>
             )}
           </div>
@@ -248,17 +249,18 @@ export default function ComparePage() {
       {/* Shared controls */}
       <div className="flex justify-center gap-4 pt-2">
         {canAnalyze && (
-          <button className="btn-primary px-10 py-3" onClick={handleAnalyze}>
-            Analyze Footage
+          <button className="btn-primary px-10" onClick={handleAnalyze}>
+            Analyze footage
           </button>
         )}
         {pagePhase === 'done' && (
           <>
-            <button className="btn-primary px-10 py-3" onClick={() => setIsPlaying(p => !p)}>
-              {isPlaying ? '⏸ Pause' : '▶ Play'}
+            <button className="btn-primary w-28" onClick={() => setIsPlaying(p => !p)}>
+              {isPlaying ? <Pause size={16} aria-hidden /> : <Play size={16} aria-hidden />}
+              {isPlaying ? 'Pause' : 'Play'}
             </button>
-            <button className="btn-ghost px-8 py-3" onClick={handleReset}>
-              Analyze New Videos
+            <button className="btn-ghost" onClick={handleReset}>
+              Analyze new videos
             </button>
           </>
         )}

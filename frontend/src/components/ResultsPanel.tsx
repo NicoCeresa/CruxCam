@@ -1,28 +1,11 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
+import { ArrowLeft, Pause, Play } from 'lucide-react'
 import { getVideoUrl } from '../api'
+import StatTile from './StatTile'
+import { angleStatus, gradeLabel, hipStatus, STATUS_HEX, STATUS_TEXT } from '../utils/metrics'
 import type { AnalysisResult, PoseEntry, VideoInfo } from '../types'
 
 const Skeleton3D = lazy(() => import('./Skeleton3D'))
-
-function angleColor(deg: number | null | undefined): string {
-  if (deg == null) return 'text-cream/40'
-  if (deg > 90) return 'text-forest-light'
-  if (deg > 60) return 'text-yellow-400'
-  return 'text-red-400'
-}
-
-function hipColor(dist: number | null | undefined): string {
-  if (dist == null) return 'text-cream/40'
-  if (dist < 0.7)  return 'text-forest-light'
-  if (dist < 1.1)  return 'text-yellow-400'
-  return 'text-red-400'
-}
-
-function gradeLabel(efficiency: number): { label: string; color: string } {
-  if (efficiency >= 70) return { label: 'Solid Form', color: 'text-forest-light' }
-  if (efficiency >= 50) return { label: 'Needs Work', color: 'text-yellow-400'   }
-  return                       { label: 'Gripped',    color: 'text-red-400'      }
-}
 
 interface Props {
   result: AnalysisResult
@@ -45,7 +28,8 @@ export default function ResultsPanel({ result, videoInfo, jobId, onReset }: Prop
   const rafRef   = useRef<number | null>(null)
 
   const videoUrl = getVideoUrl(jobId)
-  const { label: grade, color: gradeColor } = gradeLabel(result.efficiency)
+  const { label: grade, status: gradeStatus } = gradeLabel(result.efficiency)
+  const gradeColor = STATUS_TEXT[gradeStatus]
 
   // ── Playback via requestAnimationFrame reading video.currentTime
   //    The video plays natively — no seeking during playback, no stalls.
@@ -101,6 +85,24 @@ export default function ResultsPanel({ result, videoInfo, jobId, onReset }: Prop
   // ── Cleanup on unmount
   useEffect(() => () => stopPlay(), [stopPlay])
 
+  // ── Keyboard: Space toggles playback, ←/→ step one frame.
+  //    Skipped when a control has focus so it keeps its native key handling.
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLButtonElement) return
+      if (e.key === ' ') {
+        e.preventDefault()
+        isPlaying ? stopPlay() : startPlay()
+      } else if (e.key === 'ArrowLeft') {
+        handleScrub(Math.max(currentFrame - 1, 0))
+      } else if (e.key === 'ArrowRight') {
+        handleScrub(Math.min(currentFrame + 1, totalFrames - 1))
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  })
+
   // ── Current frame quality for skeleton colour
   const currentEntry: PoseEntry | undefined =
     poseData.find(e => e[0] === currentFrame) ??
@@ -122,29 +124,27 @@ export default function ResultsPanel({ result, videoInfo, jobId, onReset }: Prop
       {/* Score header */}
       <div className="card p-5 flex flex-wrap items-center gap-6">
         <div>
-          <div className="text-cream/40 text-xs tracking-widest uppercase mb-1">Efficiency</div>
+          <div className="label mb-1">Efficiency</div>
           <div className="flex items-baseline gap-3">
-            <span className={`font-display text-5xl font-700 ${gradeColor}`}>
+            <span className={`font-display text-5xl font-bold tabular-nums ${gradeColor}`}>
               {result.efficiency.toFixed(1)}%
             </span>
-            <span className={`font-display text-lg tracking-widest uppercase ${gradeColor}`}>
+            <span className={`font-body text-base font-semibold ${gradeColor}`}>
               {grade}
             </span>
           </div>
           <div className="efficiency-bar w-48 mt-2">
             <div
               className="h-full transition-all"
-              style={{
-                width: `${result.efficiency}%`,
-                background: result.efficiency >= 70 ? '#3D7A37' : result.efficiency >= 50 ? '#FACC15' : '#EF4444',
-              }}
+              style={{ width: `${result.efficiency}%`, background: STATUS_HEX[gradeStatus] }}
             />
           </div>
         </div>
 
         <div className="ml-auto flex gap-2">
-          <button className="btn-ghost text-xs" onClick={onReset}>
-            ← New Video
+          <button className="btn-ghost" onClick={onReset}>
+            <ArrowLeft size={16} aria-hidden />
+            New video
           </button>
         </div>
       </div>
@@ -164,7 +164,7 @@ export default function ResultsPanel({ result, videoInfo, jobId, onReset }: Prop
 
         <div className="card overflow-hidden h-[340px] md:h-[380px]">
           {poseData.length > 0 ? (
-            <Suspense fallback={<div className="flex items-center justify-center h-full text-cream/30 text-sm">Loading 3D viewer…</div>}>
+            <Suspense fallback={<div className="h-full bg-cream/5 animate-pulse" />}>
               <Skeleton3D
                 poseData={poseData}
                 currentFrame={currentFrame}
@@ -172,7 +172,7 @@ export default function ResultsPanel({ result, videoInfo, jobId, onReset }: Prop
               />
             </Suspense>
           ) : (
-            <div className="flex items-center justify-center h-full text-cream/30 text-sm">
+            <div className="flex items-center justify-center h-full text-muted text-sm">
               No pose data available
             </div>
           )}
@@ -182,24 +182,21 @@ export default function ResultsPanel({ result, videoInfo, jobId, onReset }: Prop
       {/* Per-frame metrics */}
       {currentEntry && (
         <div className="card p-3 grid grid-cols-3 divide-x divide-navy-lighter text-center">
-          <div className="px-4">
-            <div className="text-cream/40 text-xs tracking-widest uppercase mb-1">L Arm</div>
-            <div className={`font-display text-2xl ${angleColor(currentEntry[5])}`}>
-              {currentEntry[5] != null ? `${Math.round(currentEntry[5])}°` : '—'}
-            </div>
-          </div>
-          <div className="px-4">
-            <div className="text-cream/40 text-xs tracking-widest uppercase mb-1">R Arm</div>
-            <div className={`font-display text-2xl ${angleColor(currentEntry[4])}`}>
-              {currentEntry[4] != null ? `${Math.round(currentEntry[4])}°` : '—'}
-            </div>
-          </div>
-          <div className="px-4">
-            <div className="text-cream/40 text-xs tracking-widest uppercase mb-1">Hips</div>
-            <div className={`font-display text-2xl ${hipColor(currentEntry[6])}`}>
-              {currentEntry[6] != null ? currentEntry[6].toFixed(2) : '—'}
-            </div>
-          </div>
+          <StatTile
+            label="L arm"
+            value={currentEntry[5] != null ? `${Math.round(currentEntry[5])}°` : '—'}
+            status={angleStatus(currentEntry[5])}
+          />
+          <StatTile
+            label="R arm"
+            value={currentEntry[4] != null ? `${Math.round(currentEntry[4])}°` : '—'}
+            status={angleStatus(currentEntry[4])}
+          />
+          <StatTile
+            label="Hips"
+            value={currentEntry[6] != null ? currentEntry[6].toFixed(2) : '—'}
+            status={hipStatus(currentEntry[6])}
+          />
         </div>
       )}
 
@@ -214,15 +211,16 @@ export default function ResultsPanel({ result, videoInfo, jobId, onReset }: Prop
           className="w-full accent-terracotta"
         />
         <div className="flex items-center gap-4">
-          <button className="btn-primary px-6 py-2 text-xs" onClick={togglePlay}>
-            {isPlaying ? '⏸ Pause' : '▶ Play'}
+          <button className="btn-primary w-28" onClick={togglePlay}>
+            {isPlaying ? <Pause size={16} aria-hidden /> : <Play size={16} aria-hidden />}
+            {isPlaying ? 'Pause' : 'Play'}
           </button>
-          <span className="text-cream/40 text-xs font-body tabular-nums">
+          <span className="text-muted text-xs font-body tabular-nums">
             {fmt(currentFrame)} / {fmt(totalFrames)}
           </span>
           <span className="text-xs font-body ml-auto">
-            <span className={`inline-block w-2 h-2 rounded-full mr-1.5 ${isGoodFrame ? 'bg-forest-light' : 'bg-red-400'}`} />
-            <span className="text-cream/50">{isGoodFrame ? 'Arms open' : 'Compressed'}</span>
+            <span className={`inline-block w-2 h-2 rounded-full mr-1.5 ${isGoodFrame ? 'bg-success' : 'bg-danger'}`} />
+            <span className="text-muted">{isGoodFrame ? 'Arms open' : 'Compressed'}</span>
           </span>
         </div>
       </div>
