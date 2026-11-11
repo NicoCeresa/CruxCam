@@ -9,7 +9,7 @@ A climbing efficiency analyzer that processes video through a pose detection pip
 
 ## How it works
 
-CruxCam uses MediaPipe to detect body landmarks on each frame of a climbing video. Angles are calculated at each elbow joint in **3D world space** (metres, hip-relative) and each frame is classified as **good** (arms extended) or **bad** (arms compressed). The final efficiency score is the percentage of good frames.
+CruxCam uses MediaPipe to detect body landmarks on each frame of a climbing video. Angles are calculated at each elbow joint from the **2D image landmarks** (MediaPipe's 3D estimates are unreliable for unusual climbing poses) and each frame is classified as **good** (arms extended) or **bad** (arms compressed). The final efficiency score is the percentage of good frames.
 
 It also estimates the climber's **center of mass (CoM)** using biomechanically weighted body segments (head 8%, torso 50%, each arm 5%, each leg 16%), computed in 3D world space and smoothed with an exponential moving average.
 
@@ -20,8 +20,8 @@ Vercel (React) → Railway (FastAPI + Redis)
 ```
 
 - **React** (`frontend/`) — upload, trim, polling, results with interactive 3D skeleton viewer; two routes: `/analyze` and `/compare`
-- **FastAPI** (`api/main.py`) — REST endpoints: `/info`, `/submit`, `/status/{id}`, `/result/{id}`, `/video/{id}`, `/sample/*`
-- **ThreadPoolExecutor** (`api/tasks.py`) — runs `VideoProcessor.process_video` in a background thread (max 1 concurrent job to stay within Railway memory limits)
+- **FastAPI** (`api/routes.py`) — REST endpoints: `/info`, `/submit`, `/status/{id}`, `/result/{id}`, `/video/{id}`, `/sample/*`
+- **ThreadPoolExecutor** (`api/deps.py`, `api/jobs.py`) — runs `VideoProcessor.process_video` in background threads (max 2 concurrent jobs, so Compare can process both clips; watch Railway memory)
 - **Redis** — persists job state (progress, results) across requests
 
 Video processing uses a reader thread to overlap disk I/O with MediaPipe inference. Output is produced by ffmpeg stream-copying the original upload with the trim applied — no frames are decoded or re-encoded, keeping peak memory low.
@@ -58,11 +58,17 @@ CruxCam/
 │           ├── ResultsPanel.tsx
 │           └── Skeleton3D.tsx  # Three.js skeleton viewer
 ├── api/
-│   ├── main.py               # FastAPI endpoints + ThreadPoolExecutor job submission
-│   └── tasks.py              # process_video, serialize/deserialize helpers
+│   ├── main.py               # App setup: CORS + router
+│   ├── config.py             # Settings from CRUXCAM_* env vars
+│   ├── deps.py               # Shared services for Depends (job store, executor, previews, rate limiter)
+│   ├── routes.py             # REST endpoints
+│   ├── jobs.py               # Job state (Redis), submission, run, result serialization
+│   └── previews.py           # Uploaded previews: temp files, 1080p scaling, thumbnails, cleanup
 ├── core/
-│   ├── pose_analyzer.py      # Angle calculation, CoM, frame classification
-│   └── video_processor.py    # Threaded inference pipeline, AnalysisResult
+│   ├── pose_analyzer.py      # MediaPipe Pose, angles, CoM, contact plane, frame classification
+│   ├── results.py            # FrameResult / AnalysisResult dataclasses
+│   └── video_processor.py    # Threaded inference pipeline
+├── tests/                    # pytest: API, serialization, golden pipeline output, synthetic videos
 ├── inputs/                   # Sample videos (gitignored except .gitkeep)
 ├── Dockerfile
 ├── docker-compose.yml        # Local development (API + Redis)
@@ -104,6 +110,14 @@ cd frontend && npm run dev
 ```
 
 Open [http://localhost:5173](http://localhost:5173).
+
+**Tests**
+
+```bash
+pip install -r requirements-test.txt
+pytest -rs                    # tests needing inputs/tomoa_outside.mp4 skip if it's missing
+pytest --update-golden        # re-pin tests/golden/ after an intentional change to results
+```
 
 **Environment variables:**
 
