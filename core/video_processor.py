@@ -71,7 +71,7 @@ class VideoProcessor:
         if not cap.isOpened():
             raise RuntimeError(f"Could not open video file: {read_path}")
 
-        fps       = int(cap.get(cv2.CAP_PROP_FPS))
+        fps       = cap.get(cv2.CAP_PROP_FPS)   # fractional (e.g. 29.97); rounding misaligns the trim
         raw_total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
 
         start_frame  = max(0, start_frame)

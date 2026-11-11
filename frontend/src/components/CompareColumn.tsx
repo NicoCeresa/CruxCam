@@ -209,7 +209,7 @@ const CompareColumn = forwardRef<CompareColumnHandle, Props>(function CompareCol
               <p className="text-cream font-body font-medium text-sm truncate">{file.name}</p>
               {info && (
                 <p className="text-muted text-xs">
-                  {info.total_frames} frames · {info.fps} fps
+                  {info.total_frames} frames · {Number(info.fps.toFixed(2))} fps
                 </p>
               )}
             </div>

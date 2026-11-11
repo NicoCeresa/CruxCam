@@ -19,7 +19,7 @@ def read_video_info(path: Path) -> dict:
     cap = cv2.VideoCapture(str(path))
     if not cap.isOpened():
         raise VideoReadError("Could not read video file")
-    fps          = int(cap.get(cv2.CAP_PROP_FPS))
+    fps          = cap.get(cv2.CAP_PROP_FPS)   # keep fractional: phone video is often 29.97 / 59.94
     width        = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     height       = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))

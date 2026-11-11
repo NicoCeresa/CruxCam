@@ -113,7 +113,7 @@ export default function UploadZone({ onJobStart }: Props) {
         <span className="text-cream text-sm font-body">Use sample video</span>
         {useSample && info && (
           <span className="text-muted text-xs">
-            {info.total_frames} frames · {info.fps} fps
+            {info.total_frames} frames · {Number(info.fps.toFixed(2))} fps
           </span>
         )}
       </label>
@@ -143,7 +143,7 @@ export default function UploadZone({ onJobStart }: Props) {
               <p className="text-cream font-body font-medium">{file.name}</p>
               {info && (
                 <p className="text-muted text-xs">
-                  {info.total_frames} frames · {info.fps} fps · {info.width}×{info.height}
+                  {info.total_frames} frames · {Number(info.fps.toFixed(2))} fps · {info.width}×{info.height}
                 </p>
               )}
             </div>
