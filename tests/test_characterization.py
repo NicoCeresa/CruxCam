@@ -1,8 +1,16 @@
 """Pins the current pipeline output on a real clip so refactors can't silently change results.
 
+MediaPipe's landmarks differ slightly between CPU architectures (e.g. Apple ARM vs Linux
+x86), enough to flip frames whose elbow angle sits near the threshold. So there is one
+golden file per platform. A missing one is written on first run and the test skips; CI
+uploads tests/golden/ as an artifact so the Linux golden can be downloaded and committed.
+
 Regenerate after an intentional change with:  pytest --update-golden
+(on each platform you keep a golden for).
 """
 import json
+import platform
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -12,7 +20,8 @@ from api.jobs import serialize_result
 from core.pose_analyzer import PoseAnalyzer
 from core.video_processor import VideoProcessor
 
-GOLDEN = Path(__file__).parent / "golden" / "tomoa_outside_820_910.json"
+PLATFORM = f"{sys.platform}-{platform.machine()}"   # e.g. darwin-arm64, linux-x86_64
+GOLDEN = Path(__file__).parent / "golden" / f"tomoa_outside_820_910.{PLATFORM}.json"
 FLOAT_TOL = 1e-3
 
 

@@ -20,7 +20,7 @@ def update_golden(request) -> bool:
 
 @pytest.fixture
 def sample_clip() -> Path:
-    # inputs/ is gitignored, so tests that need real footage skip in CI.
+    # inputs/ is gitignored, but this sample clip is tracked (it ships in the Docker image).
     if not SAMPLE_CLIP.exists():
         pytest.skip(f"sample clip not found: {SAMPLE_CLIP}")
     return SAMPLE_CLIP
