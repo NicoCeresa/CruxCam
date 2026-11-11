@@ -7,6 +7,7 @@ from typing import Callable, Optional
 
 import numpy as np
 
+from core.camera_motion import CameraMotion
 from core.pose_analyzer import PoseAnalyzer
 from core.results import AnalysisResult
 from core.video_processor import VideoProcessor
@@ -104,6 +105,12 @@ def serialize_result(result: AnalysisResult) -> dict:
     }
 
 
+def build_processor(angle_threshold: int, camera_mode: Optional[str] = None) -> VideoProcessor:
+    """Assemble the pipeline for one job. camera_mode None → camera motion is not estimated."""
+    camera_motion = CameraMotion(camera_mode) if camera_mode else None
+    return VideoProcessor(PoseAnalyzer(angle_threshold=angle_threshold), camera_motion=camera_motion)
+
+
 def run_job(
     job_id: str,
     input_path: str,
@@ -123,7 +130,7 @@ def run_job(
         return
 
     # Create a fresh processor per job — model is loaded here and released in finally.
-    processor = VideoProcessor(PoseAnalyzer(angle_threshold=angle_threshold))
+    processor = build_processor(angle_threshold)
 
     def _progress(current: int, total: int) -> None:
         set_state(job_id, {"status": "processing", "current": current, "total": total})

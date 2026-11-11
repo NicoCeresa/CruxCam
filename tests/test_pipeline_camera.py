@@ -7,7 +7,8 @@ import numpy as np
 import pytest
 
 from core.camera_motion import CameraMotion
-from core.video_processor import VideoProcessor
+from core.pose_analyzer import PoseAnalyzer
+from core.video_processor import FrameAnalyzer, VideoProcessor
 from tests import synthetic as syn
 
 N = 40
@@ -29,6 +30,16 @@ class StubAnalyzer:
 
     def analyze_frame(self, img, run_inference=True):
         return True, (170.0, 170.0), np.zeros((33, 3), dtype=np.float32)
+
+
+def test_analyzers_satisfy_protocol():
+    """Keeps the stub in step with what VideoProcessor actually uses."""
+    real = PoseAnalyzer()
+    try:
+        assert isinstance(real, FrameAnalyzer)
+    finally:
+        real.close()
+    assert isinstance(StubAnalyzer(), FrameAnalyzer)
 
 
 @pytest.mark.parametrize("motion, expected", [

@@ -6,17 +6,44 @@ import subprocess
 import tempfile
 import threading
 from pathlib import Path
-from typing import Optional, Callable, Generator
+from typing import Optional, Callable, Generator, Protocol, Tuple, runtime_checkable
+import numpy as np
 from .camera_motion import CameraMotion
 from .pose_analyzer import PoseAnalyzer
 from .results import AnalysisResult, FrameResult
+
+
+@runtime_checkable
+class FrameAnalyzer(Protocol):
+    """Everything VideoProcessor needs from a per-frame pose analyzer.
+
+    Implemented by PoseAnalyzer (MediaPipe) and by test stubs. If VideoProcessor starts
+    using another member of the analyzer, add it here.
+    """
+
+    def reset(self) -> None: ...
+
+    def close(self) -> None: ...
+
+    def analyze_frame(
+        self, img: np.ndarray, run_inference: bool = True,
+    ) -> Tuple[bool, Optional[Tuple[float, float]], Optional[np.ndarray]]: ...
+
+    @property
+    def plane_data(self) -> Optional[Tuple]: ...
+
+    @property
+    def com_3d(self) -> Optional[Tuple[float, float, float]]: ...
+
+    @property
+    def climber_bbox(self) -> Optional[Tuple[float, float, float, float]]: ...
 
 
 class VideoProcessor:
 
     def __init__(
         self,
-        pose_analyzer: Optional[PoseAnalyzer] = None,
+        pose_analyzer: Optional[FrameAnalyzer] = None,
         camera_motion: Optional[CameraMotion] = None,
     ):
         self.pose_analyzer = pose_analyzer or PoseAnalyzer()
