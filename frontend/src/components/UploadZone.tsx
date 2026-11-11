@@ -1,6 +1,8 @@
 import { useCallback, useRef, useState } from 'react'
+import { Upload } from 'lucide-react'
 import { getSampleInfo, getVideoInfo, submitPreview, uploadSample } from '../api'
 import TrimControls from './TrimControls'
+import Alert from './Alert'
 import { isToooDark } from '../utils/checkBrightness'
 import type { VideoInfo } from '../types'
 
@@ -92,10 +94,10 @@ export default function UploadZone({ onJobStart }: Props) {
     <div className="max-w-2xl mx-auto space-y-8">
       {/* Hero */}
       <div className="text-center space-y-2">
-        <h1 className="font-display text-4xl font-700 tracking-widest uppercase text-cream">
+        <h1 className="font-display text-4xl font-bold tracking-wide uppercase text-cream">
           Analyze Your Send
         </h1>
-        <p className="text-cream/50 text-sm tracking-wide">
+        <p className="text-muted text-sm">
           Upload climbing footage and learn how your body moves throughout the climb.
         </p>
       </div>
@@ -108,9 +110,9 @@ export default function UploadZone({ onJobStart }: Props) {
           onChange={e => handleToggleSample(e.target.checked)}
           className="w-4 h-4 accent-terracotta"
         />
-        <span className="text-cream/60 text-sm font-body">Use sample video</span>
+        <span className="text-cream text-sm font-body">Use sample video</span>
         {useSample && info && (
-          <span className="text-cream/30 text-xs">
+          <span className="text-muted text-xs">
             {info.total_frames} frames · {info.fps} fps
           </span>
         )}
@@ -119,8 +121,8 @@ export default function UploadZone({ onJobStart }: Props) {
       {/* Drop zone — hidden when sample is active */}
       {!useSample && (
         <div
-          className={`card p-10 text-center cursor-pointer transition-colors duration-150
-            ${dragging ? 'border-terracotta bg-terracotta/5' : 'hover:border-cream/30'}`}
+          className={`card border-dashed border-cream/25 p-10 text-center cursor-pointer transition-colors duration-150
+            ${dragging ? 'border-terracotta bg-terracotta/5' : 'hover:border-cream/40'}`}
           onClick={() => inputRef.current?.click()}
           onDragOver={e => { e.preventDefault(); setDragging(true) }}
           onDragLeave={() => setDragging(false)}
@@ -134,24 +136,21 @@ export default function UploadZone({ onJobStart }: Props) {
             onChange={e => e.target.files?.[0] && loadFile(e.target.files[0])}
           />
 
-          {/* Mountain silhouette */}
-          <svg viewBox="0 0 120 70" className="w-20 h-12 mx-auto mb-4 text-cream/20">
-            <path d="M5,70 L45,8 L65,35 L85,5 L115,70 Z" fill="currentColor" />
-          </svg>
+          <Upload size={32} className="mx-auto mb-4 text-muted" aria-hidden />
 
           {file ? (
             <div className="space-y-1">
               <p className="text-cream font-body font-medium">{file.name}</p>
               {info && (
-                <p className="text-cream/40 text-xs">
+                <p className="text-muted text-xs">
                   {info.total_frames} frames · {info.fps} fps · {info.width}×{info.height}
                 </p>
               )}
             </div>
           ) : (
             <div className="space-y-1">
-              <p className="text-cream/70 font-body">Drop footage here or click to browse</p>
-              <p className="text-cream/30 text-xs tracking-wider uppercase">MP4 · MOV · AVI · MKV</p>
+              <p className="text-cream font-body">Drop footage here or click to browse</p>
+              <p className="text-muted text-xs">MP4, MOV, AVI or MKV</p>
             </div>
           )}
         </div>
@@ -185,15 +184,14 @@ export default function UploadZone({ onJobStart }: Props) {
 
       {/* Brightness warning */}
       {darkWarning && (
-        <div className="border border-yellow-500/40 bg-yellow-500/10 px-4 py-3 text-yellow-400 text-xs font-body flex items-start gap-2">
-          <span className="flex-shrink-0">⚠</span>
-          <span>This video appears dark — pose detection may be less accurate. Improving lighting before recording will give better results.</span>
-        </div>
+        <Alert>
+          This video appears dark — pose detection may be less accurate. Improving lighting before recording will give better results.
+        </Alert>
       )}
 
       {/* Error */}
       {error && (
-        <p className="text-red-400 text-sm text-center">{error}</p>
+        <p className="text-danger text-sm text-center">{error}</p>
       )}
 
       {/* Submit */}
@@ -202,7 +200,7 @@ export default function UploadZone({ onJobStart }: Props) {
         onClick={handleSubmit}
         disabled={(!file && !useSample) || !info || loading}
       >
-        {loading ? 'Loading…' : 'Analyze Footage'}
+        {loading ? 'Loading…' : 'Analyze footage'}
       </button>
     </div>
   )

@@ -28,6 +28,12 @@ export default {
           light:   '#8B5A36',
           dark:    '#4A2E18',
         },
+        // Secondary text — solid so it keeps ≥4.5:1 contrast on cards
+        muted:   '#B8C4D4',
+        // Status colours — shared by UI text, fills and the 3D viewer (utils/metrics.ts)
+        success: '#86EFAC',
+        warning: '#FACC15',
+        danger:  '#FCA5A5',
       },
       fontFamily: {
         display: ['"Barlow Condensed"', 'sans-serif'],

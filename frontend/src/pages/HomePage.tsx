@@ -6,38 +6,42 @@ export default function HomePage() {
 
       {/* Hero */}
       <section className="text-center space-y-6 py-16">
-        <h1 className="font-display text-7xl tracking-widest uppercase text-cream">
+        <h1 className="font-display text-7xl font-bold tracking-wide uppercase text-cream">
           Climb Smarter
         </h1>
-        <p className="text-cream/70 text-lg max-w-xl mx-auto font-body leading-relaxed">
+        <p className="text-muted text-lg max-w-xl mx-auto font-body leading-relaxed">
           CruxCam uses computer vision to analyze your climbing technique,
           frame by frame, in 3D.
         </p>
+        <div className="flex justify-center gap-3">
+          <Link to="/analyze" className="btn-primary">Analyze a climb</Link>
+          <Link to="/compare" className="btn-ghost">Compare two climbs</Link>
+        </div>
       </section>
 
       <div className="border-t border-cream/10" />
 
       {/* What you can do */}
       <section className="py-12 space-y-8">
-        <p className="font-display tracking-widest uppercase text-cream text-2xl">What you can do</p>
+        <p className="font-display font-bold tracking-wide uppercase text-cream text-2xl">What you can do</p>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div className="card p-8 space-y-4 flex flex-col">
-            <h2 className="font-display tracking-widest uppercase text-terracotta text-xl">Analyze</h2>
-            <p className="text-cream/70 text-sm leading-relaxed flex-1">
+            <h2 className="font-body font-semibold text-cream text-lg">Analyze</h2>
+            <p className="text-muted text-sm leading-relaxed flex-1">
               Upload a single climbing clip and get a full frame-by-frame breakdown. Set your arm
               angle threshold, trim the section you care about, and review your efficiency score
               alongside an annotated video and an interactive 3D skeleton you can scrub and rotate.
             </p>
-            <Link to="/analyze" className="btn-primary self-start text-sm px-6 py-2">Go to Analyze</Link>
+            <Link to="/analyze" className="btn-ghost self-start">Go to Analyze</Link>
           </div>
           <div className="card p-8 space-y-4 flex flex-col">
-            <h2 className="font-display tracking-widest uppercase text-terracotta text-xl">Compare</h2>
-            <p className="text-cream/70 text-sm leading-relaxed flex-1">
+            <h2 className="font-body font-semibold text-cream text-lg">Compare</h2>
+            <p className="text-muted text-sm leading-relaxed flex-1">
               Load two clips side by side and process them in parallel. Both videos and 3D
               skeletons play in sync so you can spot differences in arm position, body tension,
               and efficiency across climbs, sessions, or techniques.
             </p>
-            <Link to="/compare" className="btn-primary self-start text-sm px-6 py-2">Go to Compare</Link>
+            <Link to="/compare" className="btn-ghost self-start">Go to Compare</Link>
           </div>
         </div>
       </section>
@@ -46,7 +50,7 @@ export default function HomePage() {
 
       {/* How it works */}
       <section className="py-12 space-y-8">
-        <p className="font-display tracking-widest uppercase text-cream text-2xl">How it works</p>
+        <p className="font-display font-bold tracking-wide uppercase text-cream text-2xl">How it works</p>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           {[
             {
@@ -63,12 +67,12 @@ export default function HomePage() {
             },
           ].map(({ title, body }) => (
             <div key={title} className="space-y-3">
-              <h3 className="font-display tracking-widest uppercase text-cream text-base">{title}</h3>
-              <p className="text-cream/60 text-sm leading-relaxed">{body}</p>
+              <h3 className="font-body font-semibold text-cream text-base">{title}</h3>
+              <p className="text-muted text-sm leading-relaxed">{body}</p>
             </div>
           ))}
         </div>
-        <p className="text-cream/50 text-sm leading-relaxed max-w-2xl">
+        <p className="text-muted text-sm leading-relaxed max-w-2xl">
           Center of mass is tracked across the full climb using biomechanically weighted segments
           and smoothed with an exponential moving average, visible as a moving dot in the
           annotated video output.
@@ -79,31 +83,31 @@ export default function HomePage() {
 
       {/* About Me */}
       <section className="py-12 space-y-6">
-        <p className="font-display tracking-widest uppercase text-cream text-2xl">About me</p>
+        <p className="font-display font-bold tracking-wide uppercase text-cream text-2xl">About me</p>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
           <div className="space-y-4">
-            <p className="text-cream/70 text-sm leading-relaxed">
+            <p className="text-muted text-sm leading-relaxed">
               I am a climber who thinks in data. I hold a B.S. in Data Science from the University
               of Oregon, with minors in Computer Science and Mathematics, and I am currently
               pursuing a Master's in Computer Science at Georgia Tech.
             </p>
-            <p className="text-cream/70 text-sm leading-relaxed">
+            <p className="text-muted text-sm leading-relaxed">
               CruxCam came out of wanting to apply computer vision and machine learning to a
               problem I actually care about. Climbing gives you immediate physical feedback but
               very little structured data. This project is an attempt to close that gap.
             </p>
           </div>
           <div className="space-y-4">
-            <p className="font-display tracking-widest uppercase text-cream text-2xl">Stack</p>
+            <p className="font-display font-bold tracking-wide uppercase text-cream text-2xl">Stack</p>
             <div className="flex flex-wrap gap-2">
               {[
-                'MediaPipe', 'OpenCV', 'FastAPI', 'Celery', 'Redis',
+                'MediaPipe', 'OpenCV', 'FastAPI', 'Redis',
                 'React', 'Three.js', 'React Router', 'Vite', 'Tailwind CSS',
                 'Docker', 'Railway', 'Vercel',
               ].map(tag => (
                 <span
                   key={tag}
-                  className="border border-cream/20 text-cream/50 text-xs font-body px-3 py-1 tracking-wide"
+                  className="rounded-full border border-navy-lighter text-muted text-xs font-body px-3 py-1"
                 >
                   {tag}
                 </span>
@@ -117,11 +121,11 @@ export default function HomePage() {
 
       {/* Contact */}
       <section className="py-12 space-y-6">
-        <p className="font-display tracking-widest uppercase text-cream text-2xl">Contact</p>
+        <p className="font-display font-bold tracking-wide uppercase text-cream text-2xl">Contact</p>
         <div className="flex flex-col sm:flex-row gap-6">
           <a
             href="mailto:ceresanico@gmail.com"
-            className="text-cream/70 text-sm font-body hover:text-cream transition-colors"
+            className="text-muted text-sm font-body hover:text-cream transition-colors"
           >
             ceresanico@gmail.com
           </a>
@@ -129,7 +133,7 @@ export default function HomePage() {
             href="https://github.com/NicoCeresa/CruxCam"
             target="_blank"
             rel="noreferrer"
-            className="text-cream/70 text-sm font-body hover:text-cream transition-colors"
+            className="text-muted text-sm font-body hover:text-cream transition-colors"
           >
             github.com/NicoCeresa/CruxCam
           </a>
