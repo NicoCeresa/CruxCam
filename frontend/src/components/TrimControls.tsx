@@ -25,9 +25,9 @@ function FrameThumb({ src, label }: { src: string; label: string }) {
       <img
         src={src}
         alt=""
-        className="w-full aspect-video object-cover border border-navy-lighter"
+        className="w-full aspect-video object-cover rounded-md border border-navy-lighter"
       />
-      <span className="text-xs text-cream/30 font-body">{label}</span>
+      <span className="text-xs text-muted font-body tabular-nums">{label}</span>
     </div>
   )
 }
@@ -62,7 +62,7 @@ export default function TrimControls({ previewId, totalFrames, fps, start, end, 
 
   return (
     <div className="space-y-3">
-      <div className="flex items-center justify-between text-xs text-cream/50 font-body">
+      <div className="flex items-center justify-between text-xs text-muted font-body tabular-nums">
         <span>Trim</span>
         <span>{fmt(start)} – {fmt(end)}</span>
       </div>

@@ -2,17 +2,17 @@ import { NavLink } from 'react-router-dom'
 
 export default function Header() {
   const tabClass = ({ isActive }: { isActive: boolean }) =>
-    `font-display tracking-widest uppercase text-sm px-4 py-2 border-b-2 transition-colors duration-150 ${
+    `font-body font-medium text-sm px-3 py-2 border-b-2 transition-colors duration-150 ${
       isActive
-        ? 'border-terracotta text-terracotta'
-        : 'border-transparent text-navy/80 hover:text-navy'
+        ? 'border-terracotta text-cream'
+        : 'border-transparent text-muted hover:text-cream'
     }`
 
   return (
-    <header className="bg-white border-b border-terracotta/20 px-6 py-4 flex items-center gap-3">
+    <header className="bg-navy border-b border-navy-lighter px-6 py-3 flex items-center gap-3">
       <NavLink to="/" className="flex items-center gap-3 hover:opacity-80 transition-opacity">
-        <img src="/climbing_logo.png" alt="CruxCam" className="w-16 h-16 object-contain rounded" />
-        <span className="font-display text-5xl font-700 tracking-widest uppercase text-terracotta">
+        <img src="/climbing_logo.png" alt="" className="w-10 h-10 object-cover rounded-full" />
+        <span className="font-display text-3xl font-bold tracking-wider uppercase text-terracotta">
           Crux Cam
         </span>
       </NavLink>

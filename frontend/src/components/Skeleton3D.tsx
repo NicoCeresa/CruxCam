@@ -3,6 +3,7 @@ import { OrbitControls } from '@react-three/drei'
 import { useEffect, useMemo, useRef } from 'react'
 import * as THREE from 'three'
 import type { PoseEntry } from '../types'
+import { STATUS_HEX } from '../utils/metrics'
 
 const CONNECTIONS: [number, number][] = [
   [11, 12],           // shoulders
@@ -19,12 +20,12 @@ const CONNECTIONS: [number, number][] = [
 
 const BONE_COUNT = CONNECTIONS.length
 
-const JOINT_COLOR_GOOD = new THREE.Color('#7AFF50')
-const JOINT_COLOR_BAD  = new THREE.Color('#FF3232')
+const JOINT_COLOR_GOOD = new THREE.Color(STATUS_HEX.success)
+const JOINT_COLOR_BAD  = new THREE.Color(STATUS_HEX.danger)
 const COM_COLOR        = new THREE.Color('#7FC4FF')
-const PLANE_GREEN      = new THREE.Color('#7AFF50')
-const PLANE_YELLOW     = new THREE.Color('#FACC15')
-const PLANE_RED        = new THREE.Color('#FF3232')
+const PLANE_GREEN      = new THREE.Color(STATUS_HEX.success)
+const PLANE_YELLOW     = new THREE.Color(STATUS_HEX.warning)
+const PLANE_RED        = new THREE.Color(STATUS_HEX.danger)
 
 function planeColor(dist: number | null): THREE.Color {
   if (dist == null) return PLANE_GREEN
