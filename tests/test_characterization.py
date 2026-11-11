@@ -1,7 +1,8 @@
 """Pins the current pipeline output on a real clip so refactors can't silently change results.
 
-MediaPipe's landmarks differ slightly between CPU architectures (e.g. Apple ARM vs Linux
-x86), enough to flip frames whose elbow angle sits near the threshold. So there is one
+MediaPipe's output differs between CPU architectures (Apple ARM vs Linux x86): on this
+clip elbow angles typically differ by 5-35 degrees per frame (128 on one frame), flipping
+some good/bad classifications. Each platform is deterministic on its own, so there is one
 golden file per platform. A missing one is written on first run and the test skips; CI
 uploads tests/golden/ as an artifact so the Linux golden can be downloaded and committed.
 
