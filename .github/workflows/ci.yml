@@ -1,4 +1,4 @@
-name: CI
+name: Tests & build
 
 on:
   push:
@@ -7,31 +7,51 @@ on:
 
 jobs:
   backend:
+    name: Backend tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - name: Check out code
+        uses: actions/checkout@v4
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
         with:
           python-version: "3.11"
           cache: pip
           cache-dependency-path: requirements-test.txt
       # Same system libraries as the Dockerfile (OpenCV / MediaPipe / ffmpeg)
-      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libgl1 libglib2.0-0 ffmpeg
-      - run: pip install -r requirements-test.txt
-      # Tests needing real footage (inputs/ is gitignored) skip here; see -rs output.
-      - run: pytest -rs
+      - name: Install system libraries
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libgl1 libglib2.0-0 ffmpeg
+      - name: Install Python dependencies
+        run: pip install -r requirements-test.txt
+      # -rs lists skipped tests, e.g. a golden test with no golden yet for this platform.
+      - name: Run pytest
+        run: pytest -rs
+      # Golden files are per platform; a missing one is written during the run.
+      # Download this artifact to commit the Linux golden.
+      - name: Upload golden files
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: golden-${{ runner.os }}-${{ runner.arch }}
+          path: tests/golden/
+          if-no-files-found: ignore
 
   frontend:
+    name: Frontend build
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: frontend
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - name: Check out code
+        uses: actions/checkout@v4
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
         with:
           node-version: "20"
           cache: npm
           cache-dependency-path: frontend/package-lock.json
-      - run: npm ci
-      - run: npm run build
+      - name: Install npm dependencies
+        run: npm ci
+      - name: Type-check and build
+        run: npm run build
