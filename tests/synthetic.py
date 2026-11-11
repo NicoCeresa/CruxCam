@@ -19,7 +19,7 @@ BLOB_RADIUS = 40
 @dataclass
 class SyntheticClip:
     path: Path
-    fps: int
+    fps: float
     H: List[np.ndarray]                                   # per frame, wall → frame pixels
     blob_path: Optional[List[Tuple[float, float]]] = None  # per frame, wall coords
 
@@ -79,7 +79,7 @@ def make_clip(
     motion: List[np.ndarray],
     blob_path: Optional[List[Tuple[float, float]]] = None,
     seed: int = 0,
-    fps: int = 30,
+    fps: float = 30,
 ) -> SyntheticClip:
     """Render and write an mp4. `blob_path`, if given, needs one wall-coord point per frame."""
     wall = make_wall(seed)

@@ -26,7 +26,7 @@ class AnalysisResult:
     good_frames: int
     bad_frames: int
     efficiency: float
-    fps: int = 30
+    fps: float = 30.0                          # exact source frame rate, e.g. 29.97
     processed_video_path: Optional[str] = None
     pose_data_3d: Optional[List[FrameResult]] = None
     camera: Optional[dict] = None              # CameraMotion.summary(), when camera motion was estimated
