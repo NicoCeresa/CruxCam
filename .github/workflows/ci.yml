@@ -23,9 +23,18 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libgl1 libglib2.0-0 ffmpeg
       - name: Install Python dependencies
         run: pip install -r requirements-test.txt
-      # Tests needing real footage (inputs/ is gitignored) skip here; see -rs output.
+      # -rs lists skipped tests, e.g. a golden test with no golden yet for this platform.
       - name: Run pytest
         run: pytest -rs
+      # Golden files are per platform; a missing one is written during the run.
+      # Download this artifact to commit the Linux golden.
+      - name: Upload golden files
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: golden-${{ runner.os }}-${{ runner.arch }}
+          path: tests/golden/
+          if-no-files-found: ignore
 
   frontend:
     name: Frontend build
