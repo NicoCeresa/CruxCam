@@ -5,6 +5,8 @@ from concurrent.futures import Executor
 from pathlib import Path
 from typing import Callable, Optional
 
+import numpy as np
+
 from core.pose_analyzer import PoseAnalyzer
 from core.results import AnalysisResult
 from core.video_processor import VideoProcessor
@@ -63,6 +65,17 @@ def submit_job(
     )
 
 
+_DECIMALS = 4   # 0.1 mm for world coords — far below MediaPipe's noise
+
+
+def _round(v: Optional[float]) -> Optional[float]:
+    return None if v is None else round(float(v), _DECIMALS)
+
+
+def _round_vec(v) -> Optional[list]:
+    return None if v is None else [round(float(x), _DECIMALS) for x in v]
+
+
 def serialize_result(result: AnalysisResult) -> dict:
     # pose_data_3d is sent positionally to keep the payload small — see PoseEntry in types.ts.
     pose_data = None
@@ -70,14 +83,14 @@ def serialize_result(result: AnalysisResult) -> dict:
         pose_data = [
             [
                 f.frame_num,
-                f.world_lms.tolist(),
+                np.round(f.world_lms.astype(np.float64), _DECIMALS).tolist(),
                 f.is_good,
-                list(f.com) if f.com is not None else None,
-                f.r_angle,
-                f.l_angle,
-                f.hip_plane_dist,
-                list(f.plane_centroid) if f.plane_centroid is not None else None,
-                list(f.plane_normal) if f.plane_normal is not None else None,
+                _round_vec(f.com),
+                _round(f.r_angle),
+                _round(f.l_angle),
+                _round(f.hip_plane_dist),
+                _round_vec(f.plane_centroid),
+                _round_vec(f.plane_normal),
             ]
             for f in result.pose_data_3d
         ]

@@ -39,6 +39,16 @@ def test_serialize_is_json_and_positional():
     assert second[6:9] == [None, None, None]
 
 
+def test_serialize_rounds_floats():
+    frame = _frame(0)
+    frame.world_lms[0] = [0.123456789, -1.987654321, 2.5]
+    frame.r_angle = 123.456789
+    result = AnalysisResult(good_frames=1, bad_frames=0, efficiency=100.0, pose_data_3d=[frame])
+    entry = serialize_result(result)["pose_data_3d"][0]
+    assert entry[1][0] == [0.1235, -1.9877, 2.5]
+    assert entry[4] == 123.4568
+
+
 def test_serialize_without_pose_data():
     result = AnalysisResult(good_frames=0, bad_frames=0, efficiency=0.0, pose_data_3d=None)
     assert serialize_result(result)["pose_data_3d"] is None

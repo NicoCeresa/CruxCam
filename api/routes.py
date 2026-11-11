@@ -110,8 +110,10 @@ def sample_upload(
 
 # ── Upload endpoints ───────────────────────────────────────────────────────────
 
+# Plain `def` (not async): the upload copy and ffmpeg rescale block, so FastAPI must run
+# this in its threadpool to keep /stream and other requests responsive meanwhile.
 @router.post("/info")
-async def video_info(
+def video_info(
     request: Request,
     video: UploadFile = File(...),
     settings: Settings = Depends(get_settings),

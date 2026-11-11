@@ -27,6 +27,7 @@ class PoseAnalyzer:
         self._plane_normal: Optional[np.ndarray] = None  # (3,) smoothed unit vector
         self._plane_centroid: Optional[np.ndarray] = None
         self._hip_plane_dist: Optional[float] = None
+        self._steps = 0   # video frames since the smoothed state was last updated
 
     def close(self) -> None:
         """Release MediaPipe's native resources."""
@@ -34,10 +35,15 @@ class PoseAnalyzer:
 
     # Indices: L wrist=15, R wrist=16, L ankle=27, R ankle=28
     _CONTACT_IDX  = [15, 16, 27, 28]
-    _CONTACT_ALPHA = 0.1   # EMA weight for contact points (long memory → smooth)
-    _NORMAL_ALPHA  = 0.2   # EMA weight for plane normal   (slightly faster)
+    _CONTACT_ALPHA = 0.1   # EMA weight per video frame for contact points (long memory → smooth)
+    _NORMAL_ALPHA  = 0.2   # EMA weight per video frame for plane normal   (slightly faster)
 
-    def _update_contact_plane(self, world_lms) -> None:
+    @staticmethod
+    def _ema_weight(alpha: float, steps: int) -> float:
+        """Weight for one update covering `steps` video frames — same smoothing in time for any frame_skip."""
+        return 1 - (1 - alpha) ** steps
+
+    def _update_contact_plane(self, world_lms, steps: int) -> None:
         raw_pts = np.array(
             [[world_lms[i].x, world_lms[i].y, world_lms[i].z] for i in self._CONTACT_IDX],
             dtype=np.float32,
@@ -45,10 +51,8 @@ class PoseAnalyzer:
         if self._contact_pts is None:
             self._contact_pts = raw_pts
         else:
-            self._contact_pts = (
-                self._CONTACT_ALPHA * raw_pts +
-                (1 - self._CONTACT_ALPHA) * self._contact_pts
-            )
+            a = self._ema_weight(self._CONTACT_ALPHA, steps)
+            self._contact_pts = a * raw_pts + (1 - a) * self._contact_pts
 
         centroid = self._contact_pts.mean(axis=0)
         _, _, Vt = np.linalg.svd(self._contact_pts - centroid, full_matrices=False)
@@ -66,10 +70,8 @@ class PoseAnalyzer:
         if self._plane_normal is None:
             self._plane_normal = raw_normal
         else:
-            self._plane_normal = (
-                self._NORMAL_ALPHA * raw_normal +
-                (1 - self._NORMAL_ALPHA) * self._plane_normal
-            )
+            a = self._ema_weight(self._NORMAL_ALPHA, steps)
+            self._plane_normal = a * raw_normal + (1 - a) * self._plane_normal
             self._plane_normal /= np.linalg.norm(self._plane_normal)
 
         self._plane_centroid = centroid
@@ -110,7 +112,7 @@ class PoseAnalyzer:
         cos_theta = np.clip(np.dot(v1, v2) / (norm1 * norm2), -1.0, 1.0)
         return float(np.degrees(np.arccos(cos_theta)))
 
-    def _update_center_of_mass(self, landmarks, world_landmarks) -> None:
+    def _update_center_of_mass(self, landmarks, world_landmarks, steps: int) -> None:
         """Weighted body segment CoM computed in world space (meters), EMA-smoothed."""
         LP = self.mp_pose.PoseLandmark
         segments = {
@@ -147,9 +149,10 @@ class PoseAnalyzer:
         if self._com_x is None:
             self._com_x, self._com_y, self._com_z = raw_x, raw_y, raw_z
         else:
-            self._com_x = self._com_alpha * raw_x + (1 - self._com_alpha) * self._com_x
-            self._com_y = self._com_alpha * raw_y + (1 - self._com_alpha) * self._com_y
-            self._com_z = self._com_alpha * raw_z + (1 - self._com_alpha) * self._com_z
+            a = self._ema_weight(self._com_alpha, steps)
+            self._com_x = a * raw_x + (1 - a) * self._com_x
+            self._com_y = a * raw_y + (1 - a) * self._com_y
+            self._com_z = a * raw_z + (1 - a) * self._com_z
 
     def analyze_frame(
         self,
@@ -159,12 +162,14 @@ class PoseAnalyzer:
         """
         Analyze a single frame for climbing efficiency.
 
-        When run_inference is False, the previous frame's MediaPipe results are reused.
+        When run_inference is False, the previous frame's MediaPipe results are reused for
+        classification, but the smoothed CoM / contact plane are not updated with that stale data.
 
         Returns:
             (is_good_frame, (r_angle, l_angle), world_lms_33x3)
             angles and world_lms_33x3 are None when MediaPipe landmarks are unavailable.
         """
+        self._steps += 1
         if run_inference:
             img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
             self._last_results = self._pose.process(img_rgb)
@@ -191,8 +196,10 @@ class PoseAnalyzer:
             r_bicep_angle <= self.angle_threshold and
             l_bicep_angle <= self.angle_threshold
         )
-        self._update_center_of_mass(landmarks, world_lms)
-        self._update_contact_plane(world_lms)
+        if run_inference:
+            self._update_center_of_mass(landmarks, world_lms, self._steps)
+            self._update_contact_plane(world_lms, self._steps)
+            self._steps = 0
 
         world_lms_array = np.array([[lm.x, lm.y, lm.z] for lm in world_lms], dtype=np.float32)
 
