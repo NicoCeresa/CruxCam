@@ -29,3 +29,4 @@ class AnalysisResult:
     fps: int = 30
     processed_video_path: Optional[str] = None
     pose_data_3d: Optional[List[FrameResult]] = None
+    camera: Optional[dict] = None              # CameraMotion.summary(), when camera motion was estimated

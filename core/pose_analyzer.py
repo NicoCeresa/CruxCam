@@ -28,6 +28,7 @@ class PoseAnalyzer:
         self._plane_centroid: Optional[np.ndarray] = None
         self._hip_plane_dist: Optional[float] = None
         self._steps = 0   # video frames since the smoothed state was last updated
+        self._climber_bbox: Optional[Tuple[float, float, float, float]] = None
 
     def close(self) -> None:
         """Release MediaPipe's native resources."""
@@ -95,6 +96,11 @@ class PoseAnalyzer:
             tuple(float(v) for v in self._plane_centroid),
             tuple(float(v) for v in self._plane_normal),
         )
+
+    @property
+    def climber_bbox(self) -> Optional[Tuple[float, float, float, float]]:
+        """Pixel bbox (x0, y0, x1, y1) of the visible landmarks from the last inference, or None."""
+        return self._climber_bbox
 
     @property
     def com_3d(self) -> Optional[Tuple[float, float, float]]:
@@ -176,11 +182,19 @@ class PoseAnalyzer:
 
         results = self._last_results
         if results is None or not results.pose_landmarks or not results.pose_world_landmarks:
+            if run_inference:
+                self._climber_bbox = None
             return True, None, None
 
         h, w = img.shape[:2]
         landmarks = results.pose_landmarks.landmark
         world_lms = results.pose_world_landmarks.landmark
+
+        if run_inference:
+            visible = [lm for lm in landmarks if lm.visibility > 0.5] or list(landmarks)
+            xs = [lm.x * w for lm in visible]
+            ys = [lm.y * h for lm in visible]
+            self._climber_bbox = (min(xs), min(ys), max(xs), max(ys))
 
         # Arm angles use 2D pixel-space landmarks — MediaPipe's 3D world estimates
         # are unreliable for non-standard poses and produce incorrect angles.

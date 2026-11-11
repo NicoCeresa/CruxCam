@@ -6,15 +6,48 @@ import subprocess
 import tempfile
 import threading
 from pathlib import Path
-from typing import Optional, Callable, Generator
+from typing import Optional, Callable, Generator, Protocol, Tuple, runtime_checkable
+import numpy as np
+from .camera_motion import CameraMotion
 from .pose_analyzer import PoseAnalyzer
 from .results import AnalysisResult, FrameResult
 
 
+@runtime_checkable
+class FrameAnalyzer(Protocol):
+    """Everything VideoProcessor needs from a per-frame pose analyzer.
+
+    Implemented by PoseAnalyzer (MediaPipe) and by test stubs. If VideoProcessor starts
+    using another member of the analyzer, add it here.
+    """
+
+    def reset(self) -> None: ...
+
+    def close(self) -> None: ...
+
+    def analyze_frame(
+        self, img: np.ndarray, run_inference: bool = True,
+    ) -> Tuple[bool, Optional[Tuple[float, float]], Optional[np.ndarray]]: ...
+
+    @property
+    def plane_data(self) -> Optional[Tuple]: ...
+
+    @property
+    def com_3d(self) -> Optional[Tuple[float, float, float]]: ...
+
+    @property
+    def climber_bbox(self) -> Optional[Tuple[float, float, float, float]]: ...
+
+
 class VideoProcessor:
 
-    def __init__(self, pose_analyzer: Optional[PoseAnalyzer] = None):
+    def __init__(
+        self,
+        pose_analyzer: Optional[FrameAnalyzer] = None,
+        camera_motion: Optional[CameraMotion] = None,
+    ):
         self.pose_analyzer = pose_analyzer or PoseAnalyzer()
+        self.camera_motion = camera_motion   # None → camera motion is not estimated
 
     def close(self) -> None:
         """Release the analyzer's model resources."""
@@ -51,6 +84,8 @@ class VideoProcessor:
             tmp.close()
 
         self.pose_analyzer.reset()
+        if self.camera_motion:
+            self.camera_motion.reset()
 
         good_frames = 0
         bad_frames  = 0
@@ -93,6 +128,9 @@ class VideoProcessor:
                 is_good, angles, world_lms = self.pose_analyzer.analyze_frame(
                     frame, run_inference=is_inference_frame
                 )
+                if is_inference_frame and self.camera_motion:
+                    # Climber bbox from this frame's pose keeps features off the climber.
+                    self.camera_motion.update(frame, frame_count, self.pose_analyzer.climber_bbox)
 
                 if angles is not None:
                     if is_good:
@@ -158,7 +196,8 @@ class VideoProcessor:
             efficiency=efficiency,
             fps=fps,
             processed_video_path=output_path,
-            pose_data_3d=pose_data_3d if pose_data_3d else None
+            pose_data_3d=pose_data_3d if pose_data_3d else None,
+            camera=self.camera_motion.summary() if self.camera_motion else None,
         )
 
     def get_video_info(self, video_path: str) -> dict:
