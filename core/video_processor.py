@@ -7,15 +7,18 @@ import tempfile
 import threading
 from pathlib import Path
 from typing import Optional, Callable, Generator
-import mediapipe as mp
-from .pose_analyzer import PoseAnalyzer, AnalysisResult
+from .pose_analyzer import PoseAnalyzer
+from .results import AnalysisResult, FrameResult
 
 
 class VideoProcessor:
 
     def __init__(self, pose_analyzer: Optional[PoseAnalyzer] = None):
         self.pose_analyzer = pose_analyzer or PoseAnalyzer()
-        self._pose = mp.solutions.pose.Pose(model_complexity=0)
+
+    def close(self) -> None:
+        """Release the analyzer's model resources."""
+        self.pose_analyzer.close()
 
     def process_video(
         self,
@@ -87,8 +90,8 @@ class VideoProcessor:
                     raise reader_exc[0]
 
                 is_inference_frame = frame_count % frame_skip == 0
-                _, is_good, angles, world_lms = self.pose_analyzer.analyze_frame(
-                    frame, self._pose if is_inference_frame else None, draw=False
+                is_good, angles, world_lms = self.pose_analyzer.analyze_frame(
+                    frame, run_inference=is_inference_frame
                 )
 
                 if angles is not None:
@@ -98,16 +101,16 @@ class VideoProcessor:
                         bad_frames += 1
                     if is_inference_frame and world_lms is not None:
                         plane = self.pose_analyzer.plane_data
-                        pose_data_3d.append((
-                            frame_count,
-                            world_lms,
-                            is_good,
-                            self.pose_analyzer.com_3d,
-                            angles[0],          # r_angle
-                            angles[1],          # l_angle
-                            plane[0] if plane else None,  # hip_plane_dist
-                            plane[1] if plane else None,  # centroid (x,y,z)
-                            plane[2] if plane else None,  # normal  (x,y,z)
+                        pose_data_3d.append(FrameResult(
+                            frame_num=frame_count,
+                            world_lms=world_lms,
+                            is_good=is_good,
+                            com=self.pose_analyzer.com_3d,
+                            r_angle=angles[0],
+                            l_angle=angles[1],
+                            hip_plane_dist=plane[0] if plane else None,
+                            plane_centroid=plane[1] if plane else None,
+                            plane_normal=plane[2] if plane else None,
                         ))
 
                 frame_count += 1
