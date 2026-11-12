@@ -127,7 +127,8 @@ pytest --update-golden        # re-pin tests/golden/ after an intentional change
 | `CRUXCAM_ALLOWED_ORIGINS` | `http://localhost:5173` | Comma-separated CORS origins |
 | `CRUXCAM_FILE_TTL` | `3600` | Seconds before temp files are cleaned up |
 | `CRUXCAM_MAX_UPLOAD_MB` | `500` | Max upload size in MB |
-| `CRUXCAM_RATE_LIMIT` | `10` | Max uploads per IP per minute |
+| `CRUXCAM_RATE_LIMIT` | `10` | Max requests per client per minute (uploads, sample loads and submits share one budget) |
+| `CRUXCAM_PROXY_HOPS` | `0` | Reverse proxies in front of the API that append `X-Forwarded-For` (e.g. `1` behind a single proxy). The client address for rate limiting is taken from the right of that header; if it's present while this is `0`, the API logs a one-time warning |
 | `CRUXCAM_SAMPLE_PATH` | `inputs/tomoa_outside.mp4` | Path to built-in sample video |
 
 ## Usage
