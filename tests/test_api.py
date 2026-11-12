@@ -158,3 +158,19 @@ def test_sample_upload_rejects_start_past_end(client, executor):
         pytest.skip("sample clip not available")
     assert client.post("/sample/upload", params={"start_frame": 10**6}).status_code == 400
     assert executor.submitted == []
+
+
+def test_info_and_sample_info_are_rate_limited(store, previews):
+    limiter = RateLimiter(limit=2)
+    app.dependency_overrides[get_job_store] = lambda: store
+    app.dependency_overrides[get_preview_store] = lambda: previews
+    app.dependency_overrides[get_rate_limiter] = lambda: limiter
+    try:
+        client = TestClient(app)
+        upload = {"video": ("notes.txt", b"hello", "text/plain")}
+        assert client.post("/info", files=upload).status_code == 415   # counted, then rejected
+        assert client.post("/info", files=upload).status_code == 415
+        assert client.post("/info", files=upload).status_code == 429
+        assert client.get("/sample/info").status_code == 429           # same per-IP budget
+    finally:
+        app.dependency_overrides.clear()

@@ -27,8 +27,28 @@ UNKNOWN_JOB_GRACE_S = 10.0
 
 # ── Request helpers ────────────────────────────────────────────────────────────
 
-def _client_ip(request: Request) -> str:
-    return request.client.host if request.client else "unknown"
+_warned_unused_xff = False
+
+
+def _client_ip(request: Request, settings: Settings) -> str:
+    """Address used for rate limiting.
+
+    Behind N reverse proxies that each append to X-Forwarded-For, the real client is the
+    N-th entry from the right. Entries further left are client-supplied and spoofable, so
+    they are never used (unlike uvicorn's trust-all mode, which takes the leftmost).
+    """
+    global _warned_unused_xff
+    direct = request.client.host if request.client else "unknown"
+    xff = [h.strip() for h in request.headers.get("x-forwarded-for", "").split(",") if h.strip()]
+    if settings.proxy_hops == 0:
+        if xff and not _warned_unused_xff:
+            # Self-diagnosis for deploys: tells you what CRUXCAM_PROXY_HOPS should be.
+            log.warning("Requests carry X-Forwarded-For=%r but CRUXCAM_PROXY_HOPS=0; rate limits "
+                        "key on the proxy address %s. Set CRUXCAM_PROXY_HOPS to the number of "
+                        "proxies in front of the app.", ", ".join(xff), direct)
+            _warned_unused_xff = True
+        return direct
+    return xff[-settings.proxy_hops] if len(xff) >= settings.proxy_hops else direct
 
 
 def _validate_video(filename: str, content_type: Optional[str]) -> None:
@@ -80,11 +100,14 @@ def _start_job(
 
 @router.get("/sample/info")
 def sample_info(
+    request: Request,
     settings: Settings = Depends(get_settings),
     previews: PreviewStore = Depends(get_preview_store),
+    limiter: RateLimiter = Depends(get_rate_limiter),
 ):
     if not settings.sample_path.exists():
         raise HTTPException(status_code=404, detail="Sample video not found")
+    limiter.check(_client_ip(request, settings))
     return _create_preview(previews, settings.sample_path.suffix,
                            lambda p: shutil.copy2(settings.sample_path, p))
 
@@ -106,7 +129,7 @@ def sample_upload(
     if not settings.sample_path.exists():
         raise HTTPException(status_code=404, detail="Sample video not found")
 
-    limiter.check(_client_ip(request))
+    limiter.check(_client_ip(request, settings))
     _validate_trim(settings.sample_path, start_frame, end_frame)
     previews.cleanup()
     limiter.prune()
@@ -127,12 +150,18 @@ def sample_upload(
 
 # Plain `def` (not async): the upload copy and ffmpeg rescale block, so FastAPI must run
 # this in its threadpool to keep /stream and other requests responsive meanwhile.
-# Upload size is enforced by BodySizeLimit middleware before the body is stored.
+# Upload size is enforced by BodySizeLimit middleware before the body is stored. The rate
+# limit runs after the (size-capped) body is received but before the expensive part:
+# storing the preview and the ffmpeg rescale.
 @router.post("/info")
 def video_info(
+    request: Request,
     video: UploadFile = File(...),
+    settings: Settings = Depends(get_settings),
     previews: PreviewStore = Depends(get_preview_store),
+    limiter: RateLimiter = Depends(get_rate_limiter),
 ):
+    limiter.check(_client_ip(request, settings))
     _validate_video(video.filename or "", video.content_type)
 
     suffix = Path(video.filename).suffix.lower() if video.filename else ".mp4"
@@ -173,7 +202,7 @@ def submit_preview(
     previews: PreviewStore = Depends(get_preview_store),
     limiter: RateLimiter = Depends(get_rate_limiter),
 ):
-    limiter.check(_client_ip(request))
+    limiter.check(_client_ip(request, settings))
     previews.cleanup()
     limiter.prune()
 

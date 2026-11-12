@@ -15,7 +15,8 @@ class Settings:
     tmp:                  Path
     file_ttl:             int     # seconds before temp files and job state expire
     max_upload_mb:        int
-    rate_limit:           int     # uploads per IP per minute
+    rate_limit:           int     # requests per IP per minute (uploads + submits)
+    proxy_hops:           int     # reverse proxies in front of the app that append X-Forwarded-For
     sample_path:          Path
     redis_url:            str
 
@@ -32,6 +33,7 @@ def load_settings() -> Settings:
         file_ttl             = int(os.environ.get("CRUXCAM_FILE_TTL", 3600)),
         max_upload_mb        = int(os.environ.get("CRUXCAM_MAX_UPLOAD_MB", 500)),
         rate_limit           = int(os.environ.get("CRUXCAM_RATE_LIMIT", 10)),
+        proxy_hops           = int(os.environ.get("CRUXCAM_PROXY_HOPS", 0)),
         sample_path          = _PROJECT_ROOT / os.environ.get("CRUXCAM_SAMPLE_PATH", "inputs/tomoa_outside.mp4"),
         redis_url            = os.environ.get("REDIS_URL", "redis://localhost:6379/0"),
     )
