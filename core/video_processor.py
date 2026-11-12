@@ -6,7 +6,7 @@ import subprocess
 import tempfile
 import threading
 from pathlib import Path
-from typing import Optional, Callable, Generator, Protocol, Tuple, runtime_checkable
+from typing import Optional, Callable, Protocol, Tuple, runtime_checkable
 import numpy as np
 from .camera_motion import CameraMotion
 from .pose_analyzer import PoseAnalyzer
@@ -199,43 +199,3 @@ class VideoProcessor:
             pose_data_3d=pose_data_3d if pose_data_3d else None,
             camera=self.camera_motion.summary() if self.camera_motion else None,
         )
-
-    def get_video_info(self, video_path: str) -> dict:
-        cap = cv2.VideoCapture(video_path)
-        if not cap.isOpened():
-            raise RuntimeError(f"Could not open video file: {video_path}")
-        info = {
-            'fps': int(cap.get(cv2.CAP_PROP_FPS)),
-            'width': int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)),
-            'height': int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)),
-            'total_frames': int(cap.get(cv2.CAP_PROP_FRAME_COUNT)),
-            'duration': int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) / int(cap.get(cv2.CAP_PROP_FPS))
-        }
-        cap.release()
-        return info
-
-    def extract_frames(
-        self,
-        video_path: str,
-        max_frames: int = 10
-    ) -> Generator[tuple, None, None]:
-        cap = cv2.VideoCapture(video_path)
-        if not cap.isOpened():
-            raise RuntimeError(f"Could not open video file: {video_path}")
-
-        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        step = max(1, total_frames // max_frames)
-        frame_num = 0
-        extracted = 0
-
-        try:
-            while cap.isOpened() and extracted < max_frames:
-                success, frame = cap.read()
-                if not success:
-                    break
-                if frame_num % step == 0:
-                    yield (frame_num, frame)
-                    extracted += 1
-                frame_num += 1
-        finally:
-            cap.release()

@@ -26,7 +26,7 @@ function sampleFrame(previewId: string, frameNum: number): Promise<number> {
 }
 
 // Samples frames at 25%, 50%, and 75% through the clip and returns true if too dark.
-export async function isToooDark(previewId: string, totalFrames: number): Promise<boolean> {
+export async function isTooDark(previewId: string, totalFrames: number): Promise<boolean> {
   const frames = [0.25, 0.5, 0.75].map(p => Math.floor(p * totalFrames))
   const luminances = await Promise.all(frames.map(f => sampleFrame(previewId, f)))
   const avg = luminances.reduce((a, b) => a + b, 0) / luminances.length

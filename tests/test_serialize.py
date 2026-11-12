@@ -29,6 +29,7 @@ def test_serialize_is_json_and_positional():
     out = json.loads(json.dumps(serialize_result(result)))
 
     assert out["good_frames"] == 2 and out["fps"] == 30
+    assert "processed_video_path" not in out   # server path never goes to the client
     first, second = out["pose_data_3d"]
     assert len(first) == 9
     assert first[0] == 0

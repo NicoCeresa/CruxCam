@@ -3,7 +3,7 @@ import { Upload } from 'lucide-react'
 import { getSampleInfo, getVideoInfo, submitPreview, uploadSample } from '../api'
 import TrimControls from './TrimControls'
 import Alert from './Alert'
-import { isToooDark } from '../utils/checkBrightness'
+import { isTooDark } from '../utils/checkBrightness'
 import type { VideoInfo } from '../types'
 
 interface Props {
@@ -36,7 +36,7 @@ export default function UploadZone({ onJobStart }: Props) {
       setInfo(i)
       setTrimStart(0)
       setTrimEnd(i.total_frames - 1)
-      const dark = await isToooDark(i.preview_id, i.total_frames)
+      const dark = await isTooDark(i.preview_id, i.total_frames)
       setDarkWarning(dark)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to read video')

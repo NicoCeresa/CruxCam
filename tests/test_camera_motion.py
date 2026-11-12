@@ -102,3 +102,16 @@ def test_textureless_is_uncertain():
 def test_invalid_mode_rejected():
     with pytest.raises(ValueError):
         CameraMotion("drone")
+
+
+def test_summary_is_cached_until_next_update(tmp_path):
+    # Still for 10 frames, then the camera pans: the answer must change once updated.
+    _, frames = _clip(tmp_path, "cache", syn.static(10) + syn.pan(15, dx=3.0))
+    cm = _run(frames[:10])
+    first = cm.summary()
+    assert first["detected"] == "tripod"
+    first["used"] = "tampered"                       # callers get a copy
+    assert cm.summary()["used"] == "tripod"
+    for t in range(10, len(frames)):
+        cm.update(frames[t], t)
+    assert cm.summary()["detected"] == "handheld"    # recomputed after update

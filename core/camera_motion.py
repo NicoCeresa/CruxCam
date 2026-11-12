@@ -57,6 +57,7 @@ class CameraMotion:
         self._max_drift = 0.0                         # max corner displacement from the first frame, px
         self._pairs = 0
         self._valid_pairs = 0
+        self._summary: Optional[dict] = None          # cached summary(); cleared by update()
 
     # ── Per-frame ──────────────────────────────────────────────────────────────
 
@@ -64,6 +65,7 @@ class CameraMotion:
         """Estimate H_wall_to_frame for this frame. Frames must arrive in increasing frame_num."""
         if self.mode == "tripod":
             return
+        self._summary = None
 
         if self._scale is None:
             h, w = frame.shape[:2]
@@ -111,7 +113,13 @@ class CameraMotion:
 
         Tripod needs both low per-frame jitter and low total drift, so a slow steady pan
         (small per-frame motion, large accumulated motion) is still detected as handheld.
+        Cached until the next update(), so per-frame callers (wall_to_frame) stay O(1).
         """
+        if self._summary is None:
+            self._summary = self._compute_summary()
+        return dict(self._summary)   # copy: callers can't alter the cache
+
+    def _compute_summary(self) -> dict:
         if self.mode == "tripod":
             return {"requested": "tripod", "detected": None, "used": "tripod",
                     "p90_motion_px": None, "max_drift_px": None, "valid_pair_ratio": None}

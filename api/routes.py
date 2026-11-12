@@ -1,6 +1,8 @@
 import asyncio
 import json
+import logging
 import shutil
+import time
 import uuid
 from concurrent.futures import Executor
 from pathlib import Path
@@ -12,11 +14,15 @@ from fastapi.responses import FileResponse, Response, StreamingResponse
 from .config import Settings
 from .deps import RateLimiter, get_executor, get_job_store, get_preview_store, get_rate_limiter, get_settings
 from .jobs import JobStore, progress_payload, submit_job
-from .previews import PreviewStore, VideoReadError
+from .previews import PreviewStore, VideoReadError, read_video_info
 
+log = logging.getLogger(__name__)
 router = APIRouter()
 
 ALLOWED_EXTENSIONS = {".mp4", ".mov", ".avi", ".mkv", ".webm"}
+# Jobs are stored as "pending" before /submit returns, so a job still unknown after this
+# long doesn't exist (wrong id, expired, or lost in a restart) and the stream ends.
+UNKNOWN_JOB_GRACE_S = 10.0
 
 
 # ── Request helpers ────────────────────────────────────────────────────────────
@@ -44,8 +50,22 @@ def _create_preview(previews: PreviewStore, suffix: str, write) -> dict:
         return previews.create(suffix, write)
     except VideoReadError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
+    except Exception:
+        # Details (paths, ffmpeg output) go to the log, not to the client.
+        log.exception("preview creation failed")
+        raise HTTPException(status_code=500, detail="Could not process the video")
+
+
+def _validate_trim(video: Path, start_frame: int, end_frame: Optional[int]) -> None:
+    """Reject trim ranges that select no frames, before a job is queued."""
+    if end_frame is not None and end_frame <= start_frame:
+        raise HTTPException(status_code=400, detail="end_frame must be greater than start_frame")
+    try:
+        total = read_video_info(video)["total_frames"]
+    except VideoReadError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    if start_frame >= total:
+        raise HTTPException(status_code=400, detail=f"start_frame is past the end of the video ({total} frames)")
 
 
 def _start_job(
@@ -93,6 +113,7 @@ def sample_upload(
         raise HTTPException(status_code=404, detail="Sample video not found")
 
     limiter.check(_client_ip(request))
+    _validate_trim(settings.sample_path, start_frame, end_frame)
     previews.cleanup()
     limiter.prune()
     job_id = str(uuid.uuid4())
@@ -164,11 +185,15 @@ def submit_preview(
     previews.cleanup()
     limiter.prune()
 
-    preview_path, scaled_path = previews.take(preview_id)
-    if not preview_path or not preview_path.exists():
+    preview = previews.get(preview_id)
+    if preview is None:
+        _, scaled_path = previews.take(preview_id)   # drop any orphaned scaled copy
         if scaled_path:
             scaled_path.unlink(missing_ok=True)
         raise HTTPException(status_code=404, detail="Preview not found — please re-upload the file")
+    # Validate before take(), so a bad trim doesn't force a re-upload.
+    _validate_trim(preview, start_frame, end_frame)
+    preview_path, scaled_path = previews.take(preview_id)
 
     job_id = str(uuid.uuid4())
     input_path = settings.tmp / f"cruxcam_upload_{job_id}{preview_path.suffix or '.mp4'}"
@@ -188,8 +213,12 @@ def get_status(job_id: str, store: JobStore = Depends(get_job_store)):
 @router.get("/stream/{job_id}")
 async def stream_job(job_id: str, store: JobStore = Depends(get_job_store)):
     async def _gen():
+        started = time.monotonic()
         while True:
-            payload = progress_payload(await asyncio.to_thread(store.get, job_id))
+            data = await asyncio.to_thread(store.get, job_id)
+            if data is None and time.monotonic() - started > UNKNOWN_JOB_GRACE_S:
+                data = {"status": "failed", "error": "Job not found — it may have expired. Please try again."}
+            payload = progress_payload(data)
             yield f"data: {json.dumps(payload)}\n\n"
             if payload["status"] in ("complete", "failed"):
                 return
@@ -216,7 +245,7 @@ def get_video(job_id: str, store: JobStore = Depends(get_job_store)):
     data = store.get(job_id)
     if not data or data["status"] != "complete":
         raise HTTPException(status_code=404, detail="Job not complete")
-    video_path = data["result"].get("processed_video_path")
+    video_path = data.get("video_path")
     if not video_path or not Path(video_path).exists():
         raise HTTPException(status_code=404, detail="Video file not found")
     return FileResponse(video_path, media_type="video/mp4")

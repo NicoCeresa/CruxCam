@@ -29,6 +29,5 @@ export interface AnalysisResult {
   good_frames: number
   bad_frames: number
   efficiency: number
-  processed_video_path: string
   pose_data_3d: PoseEntry[] | null
 }
