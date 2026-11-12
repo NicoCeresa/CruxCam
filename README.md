@@ -16,13 +16,13 @@ It also estimates the climber's **center of mass (CoM)** using biomechanically w
 ## Architecture
 
 ```
-Vercel (React) → Railway (FastAPI + Redis)
+Vercel (React) → Hugging Face Space (FastAPI, Docker)
 ```
 
 - **React** (`frontend/`) — upload, trim, polling, results with interactive 3D skeleton viewer; two routes: `/analyze` and `/compare`
 - **FastAPI** (`api/routes.py`) — REST endpoints: `/info`, `/submit`, `/status/{id}`, `/result/{id}`, `/video/{id}`, `/sample/*`
-- **ThreadPoolExecutor** (`api/deps.py`, `api/jobs.py`) — runs `VideoProcessor.process_video` in background threads (max 2 concurrent jobs, so Compare can process both clips; watch Railway memory)
-- **Redis** — persists job state (progress, results) across requests
+- **ThreadPoolExecutor** (`api/deps.py`, `api/jobs.py`) — runs `VideoProcessor.process_video` in background threads (max 2 concurrent jobs, so Compare can process both clips)
+- **Job store** (`api/jobs.py`) — job state (progress, results) in memory, expiring after `CRUXCAM_FILE_TTL`. Jobs run in-process, so a restart loses them either way; this assumes a single API instance
 
 Video processing uses a reader thread to overlap disk I/O with MediaPipe inference. Output is produced by ffmpeg stream-copying the original upload with the trim applied — no frames are decoded or re-encoded, keeping peak memory low.
 
@@ -36,7 +36,6 @@ Video processing uses a reader thread to overlap disk I/O with MediaPipe inferen
 - [Three.js](https://threejs.org/) + [@react-three/fiber](https://docs.pmnd.rs/react-three-fiber) — interactive 3D skeleton viewer
 - [Tailwind CSS](https://tailwindcss.com/) — styling
 - [FastAPI](https://fastapi.tiangolo.com/) — REST API
-- [Redis](https://redis.io/) — job state store
 - [Docker](https://www.docker.com/) — containerised backend deployment
 
 ## Project structure
@@ -62,7 +61,7 @@ CruxCam/
 │   ├── config.py             # Settings from CRUXCAM_* env vars
 │   ├── deps.py               # Shared services for Depends (job store, executor, previews, rate limiter)
 │   ├── routes.py             # REST endpoints
-│   ├── jobs.py               # Job state (Redis), submission, run, result serialization
+│   ├── jobs.py               # Job state (in memory), submission, run, result serialization
 │   └── previews.py           # Uploaded previews: temp files, 1080p scaling, thumbnails, cleanup
 ├── core/
 │   ├── pose_analyzer.py      # MediaPipe Pose, angles, CoM, contact plane, frame classification
@@ -71,7 +70,8 @@ CruxCam/
 ├── tests/                    # pytest: API, serialization, golden pipeline output, synthetic videos
 ├── inputs/                   # Sample videos (gitignored except .gitkeep)
 ├── Dockerfile
-├── docker-compose.yml        # Local development (API + Redis)
+├── deploy/hf-space/README.md # Hugging Face Space config (deployed by .github/workflows/deploy-space.yml)
+├── docker-compose.yml        # Local development (API)
 ├── start.sh                  # Entrypoint: exec uvicorn
 └── requirements.txt
 ```
@@ -99,13 +99,10 @@ cd frontend && npm run dev
 **Option B — manually**
 
 ```bash
-# 1. Redis
-redis-server
-
-# 2. FastAPI (background threads handle processing — no separate worker needed)
+# 1. FastAPI (background threads handle processing — no separate worker needed)
 uvicorn api.main:app --reload
 
-# 3. React frontend
+# 2. React frontend
 cd frontend && npm run dev
 ```
 
@@ -123,7 +120,6 @@ pytest --update-golden        # re-pin tests/golden/ after an intentional change
 
 | Variable | Default | Description |
 |---|---|---|
-| `REDIS_URL` | `redis://localhost:6379/0` | Redis connection string |
 | `CRUXCAM_ALLOWED_ORIGINS` | `http://localhost:5173` | Comma-separated CORS origins |
 | `CRUXCAM_FILE_TTL` | `3600` | Seconds before temp files are cleaned up |
 | `CRUXCAM_MAX_UPLOAD_MB` | `500` | Max upload size in MB |
@@ -161,13 +157,13 @@ efficiency = (good_frames / total_frames) × 100
 
 **Frontend → Vercel**
 - Connect GitHub repo, set root directory to `frontend`
-- Add env var: `VITE_API_URL=https://your-railway-url.up.railway.app`
+- Add env var: `VITE_API_URL=https://<user>-<space>.hf.space`
 
-**Backend → Railway**
-- Deploy from GitHub repo (auto-detects `Dockerfile`)
-- Add managed Redis service, set `REDIS_URL`
-- Add env var: `CRUXCAM_ALLOWED_ORIGINS=https://your-vercel-url.vercel.app`
-- `start.sh` runs a single uvicorn process; background threads handle video processing
+**Backend → Hugging Face Space (Docker, free CPU tier)**
+- Create a public Space with the Docker SDK (private Spaces require a Hugging Face login, so the frontend can't call them)
+- In the GitHub repo add secret `HF_TOKEN` (a write token) and variable `HF_SPACE` (`<user>/<space>`). Pushes to `main` that touch the backend run `.github/workflows/deploy-space.yml`, which uploads the backend files plus `deploy/hf-space/README.md` (the Space config); run it by hand from the Actions tab for the first deploy
+- In the Space settings add variables `CRUXCAM_ALLOWED_ORIGINS=https://your-vercel-url.vercel.app` and `CRUXCAM_PROXY_HOPS` (see the warning in the Space logs)
+- `start.sh` runs a single uvicorn process; background threads handle video processing. Free Spaces sleep after about 48 hours without traffic, so the first request after that waits for a cold start
 
 ## Future work
 

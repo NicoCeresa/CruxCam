@@ -1,0 +1,46 @@
+name: Deploy API
+
+# Pushes the backend to the Hugging Face Space, which rebuilds the Docker image.
+# Main only accepts PRs that passed "Tests & build", so every push here is tested.
+# Needs repo secret HF_TOKEN (write access) and repo variable HF_SPACE (e.g. user/cruxcam-api).
+on:
+  push:
+    branches: [main]
+    paths: [api/**, core/**, inputs/**, Dockerfile, start.sh, requirements.txt, deploy/hf-space/**]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-space
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Deploy to Hugging Face
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Stage backend files
+        run: |
+          mkdir stage
+          cp -r api core inputs Dockerfile start.sh requirements.txt .dockerignore stage/
+          cp deploy/hf-space/README.md stage/README.md
+      - name: Upload to Space
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          HF_SPACE: ${{ vars.HF_SPACE }}
+        run: |
+          pip install --quiet huggingface_hub==0.26.5
+          python - <<'PY'
+          import os
+          from huggingface_hub import HfApi
+          HfApi(token=os.environ["HF_TOKEN"]).upload_folder(
+              folder_path="stage",
+              repo_id=os.environ["HF_SPACE"],
+              repo_type="space",
+              delete_patterns="*",   # mirror: remove files no longer in the repo
+              commit_message=f"Deploy {os.environ['GITHUB_SHA'][:7]}",
+          )
+          PY
