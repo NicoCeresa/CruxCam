@@ -10,7 +10,6 @@ from concurrent.futures import Executor, ThreadPoolExecutor
 from functools import lru_cache
 from typing import Dict, List
 
-import redis as redis_lib
 from fastapi import HTTPException
 
 from .config import Settings, load_settings
@@ -50,8 +49,7 @@ def get_settings() -> Settings:
 
 @lru_cache
 def get_job_store() -> JobStore:
-    s = get_settings()
-    return JobStore(redis_lib.Redis.from_url(s.redis_url, decode_responses=True), s.file_ttl)
+    return JobStore(get_settings().file_ttl)
 
 
 @lru_cache

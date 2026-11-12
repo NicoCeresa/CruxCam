@@ -101,9 +101,9 @@ export default function HomePage() {
             <p className="font-display font-bold tracking-wide uppercase text-cream text-2xl">Stack</p>
             <div className="flex flex-wrap gap-2">
               {[
-                'MediaPipe', 'OpenCV', 'FastAPI', 'Redis',
+                'MediaPipe', 'OpenCV', 'FastAPI',
                 'React', 'Three.js', 'React Router', 'Vite', 'Tailwind CSS',
-                'Docker', 'Railway', 'Vercel',
+                'Docker', 'Hugging Face', 'Vercel',
               ].map(tag => (
                 <span
                   key={tag}

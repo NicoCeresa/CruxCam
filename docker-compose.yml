@@ -1,17 +1,10 @@
 services:
-  redis:
-    image: redis:7-alpine
-    restart: unless-stopped
-
   api:
     build: .
     restart: unless-stopped
     ports:
       - "8000:8000"
     environment:
-      REDIS_URL: redis://redis:6379/0
       CRUXCAM_ALLOWED_ORIGINS: ${CRUXCAM_ALLOWED_ORIGINS:-http://localhost:5173}
       CRUXCAM_MAX_UPLOAD_MB: ${CRUXCAM_MAX_UPLOAD_MB:-500}
       CRUXCAM_RATE_LIMIT: ${CRUXCAM_RATE_LIMIT:-10}
-    depends_on:
-      - redis

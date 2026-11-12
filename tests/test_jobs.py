@@ -1,4 +1,4 @@
-"""Job assembly and execution (run_job) without Redis or the API."""
+"""Job assembly and execution (run_job) without the API."""
 from api.jobs import build_processor, run_job
 from core.camera_motion import CameraMotion
 from tests import synthetic as syn

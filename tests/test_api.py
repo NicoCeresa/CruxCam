@@ -1,4 +1,4 @@
-"""API behaviour with Redis replaced by an in-memory fake, via dependency overrides."""
+"""API behaviour with dependencies overridden (fresh job store, fake executor)."""
 import json
 import shutil
 
@@ -13,20 +13,9 @@ from api.previews import PreviewStore
 from tests import synthetic as syn
 
 
-class FakeRedis:
-    def __init__(self):
-        self.store = {}
-
-    def setex(self, key, ttl, value):
-        self.store[key] = value
-
-    def get(self, key):
-        return self.store.get(key)
-
-
 @pytest.fixture
 def store():
-    return JobStore(FakeRedis(), ttl=3600)
+    return JobStore(ttl=3600)
 
 
 class FakeExecutor:

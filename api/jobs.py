@@ -1,9 +1,11 @@
-"""Job state (Redis), submission, background execution and result serialization."""
+"""Job state (in memory), submission, background execution and result serialization."""
 import json
 import logging
+import threading
+import time
 from concurrent.futures import Executor
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Callable, Dict, Optional, Tuple
 
 import numpy as np
 
@@ -16,18 +18,30 @@ log = logging.getLogger(__name__)
 
 
 class JobStore:
-    """Job state in Redis, expiring after `ttl` seconds."""
+    """Job state in memory, expiring `ttl` seconds after its last update.
 
-    def __init__(self, redis_client, ttl: int):
-        self._redis = redis_client
+    Jobs run in this process's executor, so a restart loses them anyway; an external
+    store would add a service without adding durability. Assumes a single instance.
+    """
+
+    def __init__(self, ttl: int, clock: Callable[[], float] = time.monotonic):
         self._ttl = ttl
+        self._clock = clock
+        self._jobs: Dict[str, Tuple[float, str]] = {}
+        self._lock = threading.Lock()
 
     def set(self, job_id: str, state: dict) -> None:
-        self._redis.setex(f"cruxcam:job:{job_id}", self._ttl, json.dumps(state))
+        now = self._clock()
+        with self._lock:
+            self._jobs = {k: v for k, v in self._jobs.items() if v[0] > now}
+            self._jobs[job_id] = (now + self._ttl, json.dumps(state))
 
     def get(self, job_id: str) -> Optional[dict]:
-        raw = self._redis.get(f"cruxcam:job:{job_id}")
-        return json.loads(raw) if raw else None
+        with self._lock:
+            entry = self._jobs.get(job_id)
+        if entry is None or entry[0] <= self._clock():
+            return None
+        return json.loads(entry[1])
 
 
 def progress_payload(data: Optional[dict]) -> dict:
