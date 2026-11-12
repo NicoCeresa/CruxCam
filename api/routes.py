@@ -31,12 +31,6 @@ def _client_ip(request: Request) -> str:
     return request.client.host if request.client else "unknown"
 
 
-def _check_upload_size(request: Request, settings: Settings) -> None:
-    cl = request.headers.get("content-length")
-    if cl and int(cl) > settings.max_upload_bytes:
-        raise HTTPException(status_code=413, detail=f"File too large (max {settings.max_upload_mb} MB)")
-
-
 def _validate_video(filename: str, content_type: Optional[str]) -> None:
     ext = Path(filename).suffix.lower() if filename else ""
     if ext not in ALLOWED_EXTENSIONS:
@@ -133,14 +127,12 @@ def sample_upload(
 
 # Plain `def` (not async): the upload copy and ffmpeg rescale block, so FastAPI must run
 # this in its threadpool to keep /stream and other requests responsive meanwhile.
+# Upload size is enforced by BodySizeLimit middleware before the body is stored.
 @router.post("/info")
 def video_info(
-    request: Request,
     video: UploadFile = File(...),
-    settings: Settings = Depends(get_settings),
     previews: PreviewStore = Depends(get_preview_store),
 ):
-    _check_upload_size(request, settings)
     _validate_video(video.filename or "", video.content_type)
 
     suffix = Path(video.filename).suffix.lower() if video.filename else ".mp4"
